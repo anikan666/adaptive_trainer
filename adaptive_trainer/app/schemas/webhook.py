@@ -1,9 +1,17 @@
 from typing import Optional
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class TextContent(BaseModel):
     body: str
+
+    @field_validator("body")
+    @classmethod
+    def body_must_be_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text body must not be empty")
+        return v
 
 
 class Message(BaseModel):
@@ -60,3 +68,17 @@ class IncomingTextMessage(BaseModel):
     text: str
     timestamp: str
     phone_number_id: str
+
+    @field_validator("message_id", "sender_phone", "timestamp", "phone_number_id")
+    @classmethod
+    def must_be_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("field must not be empty")
+        return v
+
+    @field_validator("text")
+    @classmethod
+    def text_must_be_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text must not be empty")
+        return v

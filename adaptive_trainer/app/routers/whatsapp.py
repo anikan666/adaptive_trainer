@@ -14,12 +14,15 @@ This module is stateless: all state is read from and written to the DB.
 
 import logging
 
+import anthropic
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
+from app.services import rate_limiter
 from app.services.level_tracker import get_learner_level
 from app.services.lesson import generate_lesson
 from app.services.quick_lookup import quick_lookup as _lookup
@@ -37,6 +40,17 @@ _HELP_TEXT = (
     "• *help* — show this menu"
 )
 
+_RATE_LIMIT_TEXT = (
+    "You've reached the limit of 20 AI requests per hour. "
+    "Please try again later."
+)
+
+_ERROR_TEXT = "Sorry, I'm having trouble right now. Please try again in a moment."
+
+_OVERLOADED_TEXT = (
+    "The AI service is currently overloaded. Please try again in a few minutes."
+)
+
 
 async def dispatch_message(message: IncomingTextMessage) -> None:
     """Route an incoming WhatsApp message to the appropriate handler.
@@ -47,6 +61,9 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
       - "lookup <phrase>"  → translate phrase to colloquial Kannada
       - anything else      → quick lookup (default) or lesson continuation
 
+    All Anthropic API errors, database errors, and WhatsApp send failures are
+    caught here; a safe fallback message is sent to the user on error.
+
     Args:
         message: Normalized incoming WhatsApp text message.
     """
@@ -55,29 +72,50 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     text_lower = text.lower()
 
     if text_lower == "help":
-        await send_message(phone, _HELP_TEXT)
+        await _try_send_fallback(phone, _HELP_TEXT)
         return
 
-    if text_lower == "lesson" or text_lower.startswith("lesson "):
-        topic = text[len("lesson"):].strip() or _DEFAULT_TOPIC
-        await _handle_lesson(phone, topic)
+    # All paths below invoke AI — enforce the per-phone hourly rate limit.
+    if not rate_limiter.is_allowed(phone):
+        logger.warning("rate_limit_exceeded phone=%s", phone)
+        await _try_send_fallback(phone, _RATE_LIMIT_TEXT)
         return
 
-    if text_lower.startswith("lookup "):
-        phrase = text[len("lookup "):].strip()
-        if phrase:
-            await _handle_lookup(phone, phrase)
+    try:
+        if text_lower == "lesson" or text_lower.startswith("lesson "):
+            topic = text[len("lesson"):].strip() or _DEFAULT_TOPIC
+            await _handle_lesson(phone, topic)
             return
-        # Empty phrase — fall through to mode-based dispatch
 
-    mode = await _get_mode(phone)
+        if text_lower.startswith("lookup "):
+            phrase = text[len("lookup "):].strip()
+            if phrase:
+                await _handle_lookup(phone, phrase)
+                return
+            # Empty phrase — fall through to mode-based dispatch
 
-    if mode == ConversationMode.lesson:
-        # In an active lesson flow, bare text is treated as a new lesson topic
-        await _handle_lesson(phone, text or _DEFAULT_TOPIC)
-    else:
-        # Default: treat bare text as a lookup phrase
-        await _handle_lookup(phone, text)
+        mode = await _get_mode(phone)
+
+        if mode == ConversationMode.lesson:
+            # In an active lesson flow, bare text is treated as a new lesson topic
+            await _handle_lesson(phone, text or _DEFAULT_TOPIC)
+        else:
+            # Default: treat bare text as a lookup phrase
+            await _handle_lookup(phone, text)
+
+    except anthropic.RateLimitError as exc:
+        logger.error("anthropic_rate_limit phone=%s err=%s", phone, exc)
+        await _try_send_fallback(phone, _OVERLOADED_TEXT)
+    except anthropic.APIStatusError as exc:
+        logger.error("anthropic_api_error phone=%s status=%d err=%s", phone, exc.status_code, exc)
+        await _try_send_fallback(phone, _ERROR_TEXT)
+    except SQLAlchemyError as exc:
+        logger.error("db_error phone=%s err=%s", phone, exc, exc_info=True)
+        await _try_send_fallback(phone, _ERROR_TEXT)
+    except RuntimeError as exc:
+        # WhatsApp send failure from an inner send_message call.
+        # _try_send_fallback would likely fail too, so just log.
+        logger.error("whatsapp_send_failure phone=%s err=%s", phone, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +142,19 @@ async def _handle_lookup(phone: str, phrase: str) -> None:
     result = await _lookup(phrase)
     await send_message(phone, result)
     await _set_mode(phone, ConversationMode.quick_lookup)
+
+
+# ---------------------------------------------------------------------------
+# Error helpers
+# ---------------------------------------------------------------------------
+
+
+async def _try_send_fallback(phone: str, text: str) -> None:
+    """Attempt to send a message; swallow errors to avoid cascading failures."""
+    try:
+        await send_message(phone, text)
+    except Exception as exc:
+        logger.error("fallback_send_failure phone=%s err=%s", phone, exc)
 
 
 # ---------------------------------------------------------------------------
