@@ -1,5 +1,6 @@
 import logging
 
+from app.routers.whatsapp import dispatch_message
 from app.schemas.webhook import IncomingTextMessage
 from app.services.onboarding import handle_onboarding, needs_onboarding
 
@@ -10,7 +11,7 @@ async def emit_message_event(message: IncomingTextMessage) -> None:
     """Emit an incoming WhatsApp text message to the routing layer.
 
     Routes new users through onboarding before handing off to the main
-    dispatcher (ql-w0q).
+    dispatcher.
     """
     logger.info(
         "message_received",
@@ -25,4 +26,4 @@ async def emit_message_event(message: IncomingTextMessage) -> None:
         await handle_onboarding(message.sender_phone, message.text)
         return
 
-    # TODO(ql-w0q): dispatch to routing layer
+    await dispatch_message(message)
