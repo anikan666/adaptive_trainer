@@ -95,7 +95,7 @@ DATABASE_URL=postgresql+asyncpg://...
 
 - WhatsApp message window: 24-hour customer-initiated window. The app only
   sends messages in response to user messages (no proactive push for now).
-- Kannada output: Claude must produce Kannada script (ಕನ್ನಡ), not
-  transliteration, unless the user explicitly requests romanization.
+- Kannada output: Claude must produce Roman transliteration by default, not
+  Kannada script. Use Kannada script only if the user explicitly requests it.
 - Colloquial vs formal: quick lookup always targets colloquial/spoken Kannada;
   lessons may include formal variants with clear labeling.
