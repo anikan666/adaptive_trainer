@@ -56,6 +56,17 @@ async def ask_haiku(prompt: str) -> str:
     return message.content[0].text
 
 
+async def ask_haiku_with_system(prompt: str, system: str) -> str:
+    """Send a user prompt with a system prompt to claude-haiku-4-5 and return the text response."""
+    message = await _client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return message.content[0].text
+
+
 async def ask_sonnet(prompt: str, system: str) -> str:
     """Send a user prompt with a system prompt to claude-sonnet-4-6 and return the text response."""
     message = await _client.messages.create(
