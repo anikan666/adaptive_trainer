@@ -65,29 +65,32 @@ async def start_review(phone: str) -> None:
                 await send_message(phone, "No vocabulary to review yet. Complete a lesson to add words!")
             return
 
-        items = [
-            {"lv_id": row[0], "word": row[1], "translations": row[2]}
-            for row in rows
-        ]
+    await send_message(phone, "Loading your review...")
 
-        for item in items:
-            english = item["word"]
-            roman = (item["translations"] or {}).get("roman", english)
-            if random.random() < 0.5:
-                item["direction"] = "en_to_kn"
-                item["question"] = f"Translate to Kannada: {english}"
-                item["expected"] = roman
-            else:
-                item["direction"] = "kn_to_en"
-                item["question"] = f"Translate to English: {roman}"
-                item["expected"] = english
+    items = [
+        {"lv_id": row[0], "word": row[1], "translations": row[2]}
+        for row in rows
+    ]
 
-        lesson_context = {
-            "items": items,
-            "current_index": 0,
-            "reviewed_count": 0,
-        }
+    for item in items:
+        english = item["word"]
+        roman = (item["translations"] or {}).get("roman", english)
+        if random.random() < 0.5:
+            item["direction"] = "en_to_kn"
+            item["question"] = f"Translate to Kannada: {english}"
+            item["expected"] = roman
+        else:
+            item["direction"] = "kn_to_en"
+            item["question"] = f"Translate to English: {roman}"
+            item["expected"] = english
 
+    lesson_context = {
+        "items": items,
+        "current_index": 0,
+        "reviewed_count": 0,
+    }
+
+    async with AsyncSessionLocal() as db:
         convo = await _get_or_create_convo(db, phone)
         convo.lesson_context = lesson_context
         convo.mode = ConversationMode.review

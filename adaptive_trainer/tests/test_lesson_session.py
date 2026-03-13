@@ -251,11 +251,13 @@ async def test_start_lesson_sends_intro_then_first_exercise():
     ):
         await start_lesson(PHONE, "greetings")
 
-    assert mock_send.await_count == 2
+    assert mock_send.await_count == 3
     first_call_text = mock_send.call_args_list[0][0][1]
-    assert first_call_text == "Intro text"
+    assert first_call_text == "Starting your lesson on greetings..."
     second_call_text = mock_send.call_args_list[1][0][1]
-    assert "Exercise 1/1" in second_call_text
+    assert second_call_text == "Intro text"
+    third_call_text = mock_send.call_args_list[2][0][1]
+    assert "Exercise 1/1" in third_call_text
 
 
 # ---------------------------------------------------------------------------

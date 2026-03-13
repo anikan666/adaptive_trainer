@@ -47,6 +47,8 @@ async def start_lesson(phone: str, topic: str) -> None:
 
     logger.info("start_lesson phone=%s topic=%s level=%d", phone, topic, level)
 
+    await send_message(phone, f"Starting your lesson on {topic}...")
+
     lesson_text = await generate_lesson(level=level, topic=topic)
 
     exercises = await generate_exercises_batch(
