@@ -13,6 +13,7 @@ class ConversationMode(str, enum.Enum):
     lesson = "lesson"
     quick_lookup = "quick_lookup"
     onboarding = "onboarding"
+    review = "review"
 
 
 class Conversation(Base):

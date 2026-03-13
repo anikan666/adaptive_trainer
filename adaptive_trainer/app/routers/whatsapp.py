@@ -24,6 +24,7 @@ from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
 from app.services import lesson_session
 from app.services import rate_limiter
+from app.services import review_session
 from app.services.progress import get_progress_summary
 from app.services.quick_lookup import quick_lookup as _lookup
 from app.services.whatsapp_sender import send_message
@@ -36,6 +37,7 @@ _HELP_TEXT = (
     "QuickLearn Kannada commands:\n"
     "• *lesson* — start a Kannada lesson\n"
     "• *lesson <topic>* — lesson on a specific topic (e.g. lesson greetings)\n"
+    "• *review* — review vocabulary words due today\n"
     "• *lookup <word>* — quick Kannada translation\n"
     "• *progress* — view your learning stats\n"
     "• *cancel* or *stop* — cancel the current lesson\n"
@@ -89,6 +91,10 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
         await _try_send_fallback(phone, summary)
         return
 
+    if text_lower == "review":
+        await review_session.start_review(phone)
+        return
+
     # All paths below invoke AI — enforce the per-phone hourly rate limit.
     if not rate_limiter.is_allowed(phone):
         logger.warning("rate_limit_exceeded phone=%s", phone)
@@ -117,6 +123,8 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
                 await lesson_session.handle_exercise_answer(phone, text)
             else:
                 await _handle_lesson(phone, _DEFAULT_TOPIC)
+        elif mode == ConversationMode.review:
+            await review_session.handle_review_answer(phone, text)
         else:
             # Default: treat bare text as a lookup phrase
             await _handle_lookup(phone, text)
