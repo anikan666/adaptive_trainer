@@ -10,6 +10,34 @@ _GRAPH_API_VERSION = "v18.0"
 _BASE_URL = "https://graph.facebook.com"
 _MAX_RETRIES = 5
 _BACKOFF_BASE = 1.0
+_MAX_MESSAGE_LENGTH = 4000  # WhatsApp limit is 4096; leave margin
+
+def _split_message(text: str) -> list[str]:
+    """Split text into chunks that fit within WhatsApp's character limit.
+
+    Splits at paragraph boundaries (double newline) when possible.
+    Falls back to hard truncation with '...' suffix.
+    """
+    if len(text) <= _MAX_MESSAGE_LENGTH:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= _MAX_MESSAGE_LENGTH:
+            chunks.append(remaining)
+            break
+        # Try to split at a paragraph boundary within the limit
+        split_region = remaining[:_MAX_MESSAGE_LENGTH]
+        split_pos = split_region.rfind("\n\n")
+        if split_pos > 0:
+            chunks.append(remaining[:split_pos])
+            remaining = remaining[split_pos + 2:]  # skip the double newline
+        else:
+            # No paragraph boundary — hard truncate
+            chunks.append(remaining[:_MAX_MESSAGE_LENGTH - 3] + "...")
+            remaining = remaining[_MAX_MESSAGE_LENGTH - 3:]
+    return chunks
 
 _client: httpx.AsyncClient | None = None
 
@@ -39,15 +67,14 @@ def _auth_headers() -> dict[str, str]:
         "Content-Type": "application/json",
     }
 
-async def send_message(to: str, text: str) -> dict:
+async def _send_single(client: httpx.AsyncClient, to: str, text: str) -> dict:
+    """Send a single text message (must be within the character limit)."""
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
         "text": {"body": text},
     }
-    logger.info("Sending WhatsApp message to=%s text_len=%d", to, len(text))
-    client = get_client()
     for attempt in range(_MAX_RETRIES):
         try:
             response = await client.post(
@@ -76,3 +103,13 @@ async def send_message(to: str, text: str) -> dict:
                 raise
             await asyncio.sleep(wait)
     raise RuntimeError(f"Failed to send WhatsApp message to {to} after {_MAX_RETRIES} attempts")
+
+
+async def send_message(to: str, text: str) -> dict:
+    chunks = _split_message(text)
+    logger.info("Sending WhatsApp message to=%s text_len=%d chunks=%d", to, len(text), len(chunks))
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        last_result: dict = {}
+        for chunk in chunks:
+            last_result = await _send_single(client, to, chunk)
+        return last_result

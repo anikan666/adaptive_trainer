@@ -82,3 +82,67 @@ async def test_send_message_raises_on_client_error():
 
     with pytest.raises(httpx.HTTPStatusError):
         await send_message("15550000000", "Bad message")
+
+
+# --- Message splitting tests ---
+
+def test_split_short_message_returns_single_chunk():
+    from app.services.whatsapp_sender import _split_message
+    result = _split_message("Hello!")
+    assert result == ["Hello!"]
+
+
+def test_split_at_paragraph_boundary():
+    from app.services.whatsapp_sender import _split_message, _MAX_MESSAGE_LENGTH
+    # Build a message with two paragraphs where total exceeds limit
+    para1 = "A" * (_MAX_MESSAGE_LENGTH - 100)
+    para2 = "B" * 200
+    text = para1 + "\n\n" + para2
+    result = _split_message(text)
+    assert len(result) == 2
+    assert result[0] == para1
+    assert result[1] == para2
+
+
+def test_split_hard_truncate_no_paragraph_boundary():
+    from app.services.whatsapp_sender import _split_message, _MAX_MESSAGE_LENGTH
+    # One giant block with no double newlines
+    text = "X" * (_MAX_MESSAGE_LENGTH + 500)
+    result = _split_message(text)
+    assert len(result) == 2
+    assert result[0].endswith("...")
+    assert len(result[0]) == _MAX_MESSAGE_LENGTH
+    # Second chunk contains the remainder
+    assert "X" in result[1]
+
+
+def test_split_exact_limit_returns_single_chunk():
+    from app.services.whatsapp_sender import _split_message, _MAX_MESSAGE_LENGTH
+    text = "Z" * _MAX_MESSAGE_LENGTH
+    result = _split_message(text)
+    assert result == [text]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_send_message_splits_long_text():
+    from app.services.whatsapp_sender import send_message, _MAX_MESSAGE_LENGTH
+
+    call_count = 0
+
+    def count_calls(request):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json={"messages": [{"id": f"wamid.{call_count}"}]})
+
+    respx.post(MESSAGES_URL).mock(side_effect=count_calls)
+
+    # Build text that requires splitting into 2 chunks
+    para1 = "A" * (_MAX_MESSAGE_LENGTH - 100)
+    para2 = "B" * 200
+    long_text = para1 + "\n\n" + para2
+
+    result = await send_message("15551234567", long_text)
+    assert call_count == 2
+    # Returns the last chunk's result
+    assert result["messages"][0]["id"] == "wamid.2"
