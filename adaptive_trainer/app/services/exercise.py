@@ -103,6 +103,23 @@ All Kannada must be in Roman transliteration only. Return only the JSON array, n
 """
 
 
+_REQUIRED_EXERCISE_KEYS = {"type", "question", "answer", "distractors", "explanation"}
+_VALID_TYPES = {e.value for e in ExerciseType}
+
+
+def _validate_exercise(ex: dict) -> bool:
+    """Return True if an exercise dict has all required keys with valid values."""
+    if not isinstance(ex, dict):
+        return False
+    if not _REQUIRED_EXERCISE_KEYS.issubset(ex.keys()):
+        return False
+    if ex["type"] not in _VALID_TYPES:
+        return False
+    if not isinstance(ex["distractors"], list):
+        return False
+    return True
+
+
 def _extract_json(text: str) -> str:
     """Extract the first JSON object from a string."""
     match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -160,11 +177,29 @@ async def generate_exercises_batch(
 
     Returns:
         List of exercise dicts with keys: type, question, answer, distractors, explanation.
+
+    Raises:
+        ValueError: If exercises fail validation after one retry.
     """
     lesson_context = _LESSON_CONTEXT_SECTION.format(lesson_text=lesson_text) if lesson_text else "\n"
     prompt = _BATCH_PROMPT_TEMPLATE.format(
         count=count, level=level, topic=topic, lesson_context=lesson_context
     )
-    raw = await ask_sonnet(prompt, SYSTEM_EXERCISE_GENERATION)
-    json_str = _extract_json_array(raw)
-    return json.loads(json_str)
+
+    for attempt in range(2):
+        raw = await ask_sonnet(prompt, SYSTEM_EXERCISE_GENERATION)
+        json_str = _extract_json_array(raw)
+        exercises = json.loads(json_str)
+
+        valid = [ex for ex in exercises if _validate_exercise(ex)]
+
+        if len(valid) >= count:
+            return valid[:count]
+
+        if attempt == 0:
+            continue
+
+    raise ValueError(
+        f"Exercise generation failed validation after retry: "
+        f"expected {count} valid exercises, got {len(valid)}"
+    )
