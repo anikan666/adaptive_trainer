@@ -83,8 +83,17 @@ async def start_review(phone: str) -> None:
     ]
 
     for item in items:
-        english = item["word"]
-        roman = (item["translations"] or {}).get("roman", english)
+        translations = item["translations"] or {}
+        if "roman" in translations:
+            # New format: word=English, translations.roman=Kannada
+            english = item["word"]
+            roman = translations["roman"]
+        else:
+            # Old format: word=Kannada, translations.explanation=context
+            # Only Kannada is available — quiz recognition only
+            roman = item["word"]
+            english = translations.get("explanation", roman)
+
         if random.random() < 0.5:
             item["direction"] = "en_to_kn"
             item["question"] = f"Translate to Kannada: {english}"
