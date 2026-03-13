@@ -12,7 +12,7 @@ class VocabularyItem(Base):
     __tablename__ = "vocabulary_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    word: Mapped[str] = mapped_column(Text, nullable=False)
+    word: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     translations: Mapped[dict] = mapped_column(JSONB, nullable=False)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, server_default="{}")
 

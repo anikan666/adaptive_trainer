@@ -313,7 +313,7 @@ async def _add_or_update_vocabulary(phone: str, word: str, explanation: str) -> 
             return
 
         result = await db.execute(select(VocabularyItem).where(VocabularyItem.word == word))
-        vocab_item = result.scalar_one_or_none()
+        vocab_item = result.scalars().first()
         if vocab_item is None:
             vocab_item = VocabularyItem(
                 word=word,
