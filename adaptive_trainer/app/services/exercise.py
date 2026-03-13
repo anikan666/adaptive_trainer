@@ -32,6 +32,7 @@ Return a JSON object with exactly these fields:
   "type": "mcq",
   "question": "<English prompt: 'Which Kannada word means ...?'>",
   "answer": "<correct Roman transliteration>",
+  "english_word": "<the English word or phrase being tested>",
   "distractors": ["<wrong1>", "<wrong2>", "<wrong3>"],
   "explanation": "<brief explanation of the correct answer and why distractors are wrong>"
 }}
@@ -50,6 +51,7 @@ Return a JSON object with exactly these fields:
   "type": "fill_in_blank",
   "question": "<Kannada sentence in Roman transliteration with _____ as the blank>",
   "answer": "<the missing Kannada word in Roman transliteration>",
+  "english_word": "<English meaning of the missing word>",
   "distractors": ["<wrong1>", "<wrong2>", "<wrong3>"],
   "explanation": "<English translation of the full sentence and why the answer fits>"
 }}
@@ -68,6 +70,7 @@ Return a JSON object with exactly these fields:
   "type": "translation",
   "question": "<English sentence to translate>",
   "answer": "<correct colloquial Kannada translation in Roman transliteration>",
+  "english_word": "<the key English word or phrase being tested>",
   "distractors": [],
   "explanation": "<notes on the translation: key vocabulary, register, or cultural context>"
 }}
@@ -91,6 +94,7 @@ Return a JSON array of exactly {count} exercise objects. Each object must have t
   "type": "mcq" | "fill_in_blank" | "translation",
   "question": "<the question text>",
   "answer": "<correct answer in Roman transliteration>",
+  "english_word": "<the English word or phrase being tested>",
   "distractors": ["<wrong1>", "<wrong2>", "<wrong3>"],  // empty array for translation
   "explanation": "<brief explanation>"
 }}

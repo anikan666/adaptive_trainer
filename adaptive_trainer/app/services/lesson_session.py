@@ -160,9 +160,12 @@ async def finish_lesson(phone: str) -> None:
 
     for exercise in exercises:
         answer = exercise.get("answer", "")
+        english_word = exercise.get("english_word", "")
         explanation = exercise.get("explanation", "")
-        if answer:
-            await _add_or_update_vocabulary(phone, word=answer, explanation=explanation)
+        if answer and english_word:
+            await _add_or_update_vocabulary(
+                phone, english_word=english_word, kannada_roman=answer, explanation=explanation
+            )
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
@@ -296,15 +299,18 @@ async def _get_learner_id(db: AsyncSession, phone: str) -> int | None:
     return learner.id if learner else None
 
 
-async def _add_or_update_vocabulary(phone: str, word: str, explanation: str) -> None:
+async def _add_or_update_vocabulary(
+    phone: str, english_word: str, kannada_roman: str, explanation: str
+) -> None:
     """Add a word to the learner's SRS vocabulary deck if not already present.
 
-    Finds or creates the VocabularyItem for *word*, then creates a
+    Finds or creates the VocabularyItem for *english_word*, then creates a
     LearnerVocabulary entry due today if one doesn't already exist.
 
     Args:
         phone: Learner's phone number in E.164 format.
-        word: Kannada word in Roman transliteration.
+        english_word: English word or phrase.
+        kannada_roman: Kannada word in Roman transliteration.
         explanation: English explanation or translation context.
     """
     async with AsyncSessionLocal() as db:
@@ -312,12 +318,14 @@ async def _add_or_update_vocabulary(phone: str, word: str, explanation: str) -> 
         if learner_id is None:
             return
 
-        result = await db.execute(select(VocabularyItem).where(VocabularyItem.word == word))
+        result = await db.execute(
+            select(VocabularyItem).where(VocabularyItem.word == english_word)
+        )
         vocab_item = result.scalars().first()
         if vocab_item is None:
             vocab_item = VocabularyItem(
-                word=word,
-                translations={"explanation": explanation},
+                word=english_word,
+                translations={"roman": kannada_roman, "explanation": explanation},
                 tags=[],
             )
             db.add(vocab_item)

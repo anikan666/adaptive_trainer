@@ -35,6 +35,7 @@ _MCQ_EXERCISE = {
     "type": "mcq",
     "question": "Which Kannada word means 'hello'?",
     "answer": "namaskara",
+    "english_word": "hello",
     "distractors": ["dhanyavada", "illa", "hogona"],
     "explanation": "namaskara is the standard Kannada greeting.",
     "shuffled_options": ["namaskara", "dhanyavada", "illa", "hogona"],
@@ -44,6 +45,7 @@ _FILL_EXERCISE = {
     "type": "fill_in_blank",
     "question": "Nanu _____ Kannada kaltini.",
     "answer": "chennagi",
+    "english_word": "well",
     "distractors": ["ketta", "dodda", "chinna"],
     "explanation": "The sentence means 'I am learning Kannada well.'",
 }
@@ -52,6 +54,7 @@ _TRANSLATION_EXERCISE = {
     "type": "translation",
     "question": "I want water.",
     "answer": "nange neeru beku",
+    "english_word": "I want water.",
     "distractors": [],
     "explanation": "'neeru' means water; 'beku' expresses wanting.",
 }
@@ -435,9 +438,9 @@ async def test_finish_lesson_adds_vocabulary_for_each_exercise():
         await finish_lesson(PHONE)
 
     assert mock_vocab.await_count == 2
-    calls_words = {c[1]["word"] for c in mock_vocab.call_args_list}
-    assert "namaskara" in calls_words
-    assert "chennagi" in calls_words
+    calls_english = {c[1]["english_word"] for c in mock_vocab.call_args_list}
+    assert "hello" in calls_english
+    assert "well" in calls_english
 
 
 @pytest.mark.asyncio
