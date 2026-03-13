@@ -1,16 +1,26 @@
 import logging
 logging.basicConfig(level=logging.INFO)
 
+from contextlib import asynccontextmanager
+
 import anthropic
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.routers import webhook
+from app.services.whatsapp_sender import close_client as close_whatsapp_client
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Adaptive Trainer", description="Adaptive Kannada language learning via WhatsApp")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await close_whatsapp_client()
+
+
+app = FastAPI(title="Adaptive Trainer", description="Adaptive Kannada language learning via WhatsApp", lifespan=lifespan)
 
 app.include_router(webhook.router)
 

@@ -22,6 +22,15 @@ def mock_settings():
         yield m
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_client(mock_settings):
+    """Reset the shared httpx client between tests to avoid cross-test pollution."""
+    from app.services import whatsapp_sender as ws
+    ws._client = None
+    yield
+    ws._client = None
+
+
 MESSAGES_URL = "https://graph.facebook.com/v18.0/123456789/messages"
 
 
