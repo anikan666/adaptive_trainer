@@ -19,7 +19,14 @@ SYSTEM_LESSON_GENERATION = (
     "Never reference instructions, prompts, or that you are an AI. "
     "All Kannada must be in Roman transliteration, not Kannada script. "
     "Keep lessons SHORT — this is WhatsApp, not a classroom. "
-    "Use English for labels and explanations; transliteration for all Kannada."
+    "Use English for labels and explanations; transliteration for all Kannada.\n\n"
+    "TRANSLITERATION ACCURACY — common mistakes to avoid:\n"
+    "• 'My name is' = 'Nanna hesaru' (NOT 'Nannu hesaru' — Nannu means 'I/me')\n"
+    "• 'Stop here' = 'Illi nilsi' (NOT 'illige nilli')\n"
+    "• 'How much?' = 'Yeshtu?' (NOT 'Estu?')\n"
+    "• 'What?' = 'Yenu?' • 'Where?' = 'Yelli?'\n"
+    "• Use colloquial Bengaluru forms: 'maaDi' not 'maaDiri', 'hogona' not 'hogONa'\n"
+    "Double-check every Kannada phrase for grammatical accuracy before including it."
 )
 
 SYSTEM_EXERCISE_GENERATION = (
@@ -29,7 +36,12 @@ SYSTEM_EXERCISE_GENERATION = (
     "All Kannada must be in Roman transliteration, not Kannada script. "
     "Generate exercises based on colloquial spoken Kannada as used in daily Bengaluru life. "
     "Make each exercise unique — vary the vocabulary, sentence structure, and context. "
-    "Do not repeat the same word or phrase across exercises in a session."
+    "Do not repeat the same word or phrase across exercises in a session.\n\n"
+    "TRANSLITERATION ACCURACY — double-check every Kannada word:\n"
+    "• 'Nanna' = my/mine, 'Nannu' = I/me — do NOT confuse these\n"
+    "• 'Illi' = here, 'Alli' = there — do NOT swap\n"
+    "• 'nilsi' = stop (imperative), NOT 'nilli'\n"
+    "• Use standard Bengaluru colloquial forms and verify grammar before outputting."
 )
 
 SYSTEM_ANSWER_EVALUATION = (
