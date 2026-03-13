@@ -259,3 +259,70 @@ async def test_no_mode_defaults_to_lookup():
         await dispatch_message(_make_message("thank you"))
 
     mock_lkp.assert_awaited_once_with("thank you")
+
+
+# ---------------------------------------------------------------------------
+# progress keyword
+# ---------------------------------------------------------------------------
+
+_PATCH_GET_PROGRESS = "app.routers.whatsapp.get_progress_summary"
+
+
+@pytest.mark.asyncio
+async def test_progress_calls_get_progress_summary():
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="📊 Your Progress\nLevel: 2/5") as mock_prog,
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+    ):
+        await dispatch_message(_make_message("progress"))
+
+    mock_prog.assert_awaited_once_with("14155550001")
+
+
+@pytest.mark.asyncio
+async def test_progress_sends_summary():
+    summary = "📊 Your Progress\nLevel: 2/5"
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value=summary),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("progress"))
+
+    mock_send.assert_awaited_once_with("14155550001", summary)
+
+
+@pytest.mark.asyncio
+async def test_progress_case_insensitive():
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("PROGRESS"))
+
+    mock_send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_progress_does_not_hit_rate_limiter():
+    """progress bypasses the rate limiter (no AI call)."""
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch("app.routers.whatsapp.rate_limiter.is_allowed") as mock_rl,
+    ):
+        await dispatch_message(_make_message("progress"))
+
+    mock_rl.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_progress_does_not_query_mode():
+    """progress short-circuits mode dispatch."""
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock) as mock_state,
+    ):
+        await dispatch_message(_make_message("progress"))
+
+    mock_state.assert_not_awaited()

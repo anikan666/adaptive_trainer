@@ -24,6 +24,7 @@ from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
 from app.services import lesson_session
 from app.services import rate_limiter
+from app.services.progress import get_progress_summary
 from app.services.quick_lookup import quick_lookup as _lookup
 from app.services.whatsapp_sender import send_message
 
@@ -36,6 +37,7 @@ _HELP_TEXT = (
     "• *lesson* — start a Kannada lesson\n"
     "• *lesson <topic>* — lesson on a specific topic (e.g. lesson greetings)\n"
     "• *lookup <word>* — quick Kannada translation\n"
+    "• *progress* — view your learning stats\n"
     "• *cancel* or *stop* — cancel the current lesson\n"
     "• *help* — show this menu"
 )
@@ -80,6 +82,11 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
 
     if text_lower in ("cancel", "stop"):
         await _cancel_lesson(phone)
+        return
+
+    if text_lower == "progress":
+        summary = await get_progress_summary(phone)
+        await _try_send_fallback(phone, summary)
         return
 
     # All paths below invoke AI — enforce the per-phone hourly rate limit.
