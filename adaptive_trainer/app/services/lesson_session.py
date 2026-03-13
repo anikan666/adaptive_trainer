@@ -16,6 +16,7 @@ from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType, generate_exercises_batch
 from app.services.lesson import generate_lesson
 from app.services.level_tracker import get_learner_level, update_level_after_session
+from app.services.srs import get_due_items
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,13 @@ async def start_lesson(phone: str, topic: str) -> None:
 
     await send_message(phone, f"Starting your lesson on {topic}...")
 
-    lesson_text = await generate_lesson(level=level, topic=topic)
+    due_items: list[str] = []
+    async with AsyncSessionLocal() as db:
+        learner_id = await _get_learner_id(db, phone)
+        if learner_id is not None:
+            due_items = await get_due_items(db, learner_id)
+
+    lesson_text = await generate_lesson(level=level, topic=topic, due_items=due_items or None)
 
     exercises = await generate_exercises_batch(
         count=_EXERCISE_COUNT, level=level, topic=topic, lesson_text=lesson_text
