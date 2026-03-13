@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
 
 from app.config import settings
 from app.schemas.webhook import IncomingTextMessage, WebhookPayload
@@ -42,13 +42,25 @@ async def verify_webhook(
     return int(hub_challenge)
 
 
+async def _safe_emit(incoming: IncomingTextMessage) -> None:
+    """Emit a message event, catching and logging any errors."""
+    try:
+        await emit_message_event(incoming)
+    except Exception:
+        logger.exception(
+            "background_emit_failed",
+            extra={"message_id": incoming.message_id, "sender_phone": incoming.sender_phone},
+        )
+
+
 @router.post("", status_code=status.HTTP_200_OK)
-async def receive_message(request: Request) -> dict:
+async def receive_message(request: Request, background_tasks: BackgroundTasks) -> dict:
     """Receive incoming WhatsApp messages (POST /webhook).
 
-    Verifies the HMAC-SHA256 signature, parses the payload, and emits
-    text message events to the routing layer.  Non-text message types
-    are silently acknowledged (required by WhatsApp — must always 200).
+    Verifies the HMAC-SHA256 signature, parses the payload, and schedules
+    text message events via BackgroundTasks so the 200 is returned
+    immediately — before WhatsApp's 15-second timeout.  Non-text message
+    types are silently acknowledged (required by WhatsApp — must always 200).
     """
     body = await request.body()
 
@@ -80,6 +92,6 @@ async def receive_message(request: Request) -> dict:
                     timestamp=msg.timestamp,
                     phone_number_id=value.metadata.phone_number_id,
                 )
-                await emit_message_event(incoming)
+                background_tasks.add_task(_safe_emit, incoming)
 
     return {"status": "ok"}
