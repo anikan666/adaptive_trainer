@@ -21,8 +21,6 @@ from app.services.whatsapp_sender import send_message
 logger = logging.getLogger(__name__)
 
 _EXERCISE_COUNT = 4
-_EXERCISE_TYPES = [ExerciseType.MCQ, ExerciseType.FILL_IN_BLANK, ExerciseType.TRANSLATION]
-
 _NO_LESSON_TEXT = "No active lesson. Send 'lesson' to start one."
 
 
@@ -160,10 +158,13 @@ async def finish_lesson(phone: str) -> None:
         new_level = old_level
 
     for exercise in exercises:
-        answer = exercise.get("answer", "")
+        kannada = exercise.get("answer", "")
+        english = exercise.get("question", "")
         explanation = exercise.get("explanation", "")
-        if answer:
-            await _add_or_update_vocabulary(phone, word=answer, explanation=explanation)
+        if kannada:
+            await _add_or_update_vocabulary(
+                phone, english_word=english, kannada_word=kannada, explanation=explanation,
+            )
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
@@ -255,15 +256,6 @@ def _build_feedback(result: dict, exercise: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _pick_exercise_types(count: int) -> list[ExerciseType]:
-    """Return a list of exercise types of the given count with a mixed spread."""
-    types = list(_EXERCISE_TYPES)
-    while len(types) < count:
-        types.append(random.choice(_EXERCISE_TYPES))
-    random.shuffle(types)
-    return types[:count]
-
-
 async def _get_or_create_convo(db: AsyncSession, phone: str) -> Conversation:
     """Return the active non-onboarding conversation, creating one if needed."""
     convo = await _get_active_convo(db, phone)
@@ -286,28 +278,34 @@ async def _get_learner_id(db: AsyncSession, phone: str) -> int | None:
     return learner.id if learner else None
 
 
-async def _add_or_update_vocabulary(phone: str, word: str, explanation: str) -> None:
+async def _add_or_update_vocabulary(
+    phone: str, english_word: str, kannada_word: str, explanation: str,
+) -> None:
     """Add a word to the learner's SRS vocabulary deck if not already present.
 
-    Finds or creates the VocabularyItem for *word*, then creates a
-    LearnerVocabulary entry due today if one doesn't already exist.
+    Stores the English meaning as VocabularyItem.word and the Kannada
+    transliteration in translations.roman so review_session can quiz in
+    both directions.
 
     Args:
         phone: Learner's phone number in E.164 format.
-        word: Kannada word in Roman transliteration.
-        explanation: English explanation or translation context.
+        english_word: English meaning or question context.
+        kannada_word: Kannada answer in Roman transliteration.
+        explanation: Additional context about the word.
     """
     async with AsyncSessionLocal() as db:
         learner_id = await _get_learner_id(db, phone)
         if learner_id is None:
             return
 
-        result = await db.execute(select(VocabularyItem).where(VocabularyItem.word == word))
+        result = await db.execute(
+            select(VocabularyItem).where(VocabularyItem.word == english_word)
+        )
         vocab_item = result.scalars().first()
         if vocab_item is None:
             vocab_item = VocabularyItem(
-                word=word,
-                translations={"explanation": explanation},
+                word=english_word,
+                translations={"roman": kannada_word, "explanation": explanation},
                 tags=[],
             )
             db.add(vocab_item)
