@@ -163,12 +163,11 @@ def test_build_feedback_wrong_uses_exercise_answer_if_no_corrected():
 
 _PATCH_GET_LEVEL = "app.services.lesson_session.get_learner_level"
 _PATCH_GEN_LESSON = "app.services.lesson_session.generate_lesson"
-_PATCH_GEN_EXERCISE = "app.services.lesson_session.generate_exercise"
+_PATCH_GEN_BATCH = "app.services.lesson_session.generate_exercises_batch"
 _PATCH_SEND = "app.services.lesson_session.send_message"
 _PATCH_SESSION = "app.services.lesson_session.AsyncSessionLocal"
 _PATCH_EVAL = "app.services.lesson_session.evaluate_answer"
 _PATCH_UPDATE_LEVEL = "app.services.lesson_session.update_level_after_session"
-_PATCH_PICK = "app.services.lesson_session._pick_exercise_types"
 
 
 def _make_db_context(convo):
@@ -192,15 +191,33 @@ async def test_start_lesson_gets_level_and_generates_lesson():
     with (
         patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, return_value=2) as mock_level,
         patch(_PATCH_GEN_LESSON, new_callable=AsyncMock, return_value="Intro text") as mock_lesson,
-        patch(_PATCH_GEN_EXERCISE, new_callable=AsyncMock, return_value=dict(_MCQ_EXERCISE)),
+        patch(_PATCH_GEN_BATCH, new_callable=AsyncMock, return_value=[dict(_MCQ_EXERCISE)]),
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SESSION, return_value=db_cm),
-        patch(_PATCH_PICK, return_value=[ExerciseType.MCQ]),
     ):
         await start_lesson(PHONE, "greetings")
 
     mock_level.assert_awaited_once_with(PHONE)
     mock_lesson.assert_awaited_once_with(level=2, topic="greetings")
+
+
+@pytest.mark.asyncio
+async def test_start_lesson_calls_generate_exercises_batch():
+    convo = _make_convo()
+    db_cm, _ = _make_db_context(convo)
+
+    with (
+        patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, return_value=2),
+        patch(_PATCH_GEN_LESSON, new_callable=AsyncMock, return_value="Intro text"),
+        patch(_PATCH_GEN_BATCH, new_callable=AsyncMock, return_value=[dict(_MCQ_EXERCISE)]) as mock_batch,
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch(_PATCH_SESSION, return_value=db_cm),
+    ):
+        await start_lesson(PHONE, "greetings")
+
+    mock_batch.assert_awaited_once_with(
+        count=4, level=2, topic="greetings", lesson_text="Intro text"
+    )
 
 
 @pytest.mark.asyncio
@@ -211,10 +228,9 @@ async def test_start_lesson_falls_back_to_level_1_on_missing_learner():
     with (
         patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, side_effect=ValueError("no learner")),
         patch(_PATCH_GEN_LESSON, new_callable=AsyncMock, return_value="Intro") as mock_lesson,
-        patch(_PATCH_GEN_EXERCISE, new_callable=AsyncMock, return_value=dict(_MCQ_EXERCISE)),
+        patch(_PATCH_GEN_BATCH, new_callable=AsyncMock, return_value=[dict(_MCQ_EXERCISE)]),
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SESSION, return_value=db_cm),
-        patch(_PATCH_PICK, return_value=[ExerciseType.MCQ]),
     ):
         await start_lesson(PHONE, "greetings")
 
@@ -229,10 +245,9 @@ async def test_start_lesson_sends_intro_then_first_exercise():
     with (
         patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, return_value=1),
         patch(_PATCH_GEN_LESSON, new_callable=AsyncMock, return_value="Intro text"),
-        patch(_PATCH_GEN_EXERCISE, new_callable=AsyncMock, return_value=dict(_MCQ_EXERCISE)),
+        patch(_PATCH_GEN_BATCH, new_callable=AsyncMock, return_value=[dict(_MCQ_EXERCISE)]),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
-        patch(_PATCH_PICK, return_value=[ExerciseType.MCQ]),
     ):
         await start_lesson(PHONE, "greetings")
 
