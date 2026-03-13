@@ -39,10 +39,14 @@ _INVALID_LEVEL = (
 
 _MAIN_MENU = (
     "You're all set! 🎉\n\n"
-    "Send me a message anytime:\n"
-    "• *lesson* — get a Kannada lesson\n"
-    "• *lookup <word>* — quick word lookup\n"
-    "• *help* — see all commands"
+    "Here's what I can do — just text me anytime:\n"
+    "• *lesson* — I'll teach you something new\n"
+    "• *lesson <topic>* — pick a topic, e.g. _lesson greetings_\n"
+    "• *review* — quiz yourself on words you've learned\n"
+    "• *lookup <word>* — quick translation\n"
+    "• *progress* — see how far you've come\n"
+    "• *help* — the full menu\n\n"
+    "Ready? Try: *lesson greetings* 🚀"
 )
 
 
