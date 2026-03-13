@@ -12,7 +12,7 @@ from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services.evaluator import evaluate_answer
-from app.services.exercise import ExerciseType, generate_exercise
+from app.services.exercise import ExerciseType, generate_exercises_batch
 from app.services.lesson import generate_lesson
 from app.services.level_tracker import get_learner_level, update_level_after_session
 from app.services.whatsapp_sender import send_message
@@ -50,13 +50,12 @@ async def start_lesson(phone: str, topic: str) -> None:
 
     lesson_text = await generate_lesson(level=level, topic=topic)
 
-    exercise_types = _pick_exercise_types(_EXERCISE_COUNT)
-    exercises = []
-    for ex_type in exercise_types:
-        ex = await generate_exercise(ex_type, level=level, topic=topic)
-        if ex_type == ExerciseType.MCQ:
+    exercises = await generate_exercises_batch(
+        count=_EXERCISE_COUNT, level=level, topic=topic, lesson_text=lesson_text
+    )
+    for ex in exercises:
+        if ex.get("type") == ExerciseType.MCQ:
             _shuffle_mcq_options(ex)
-        exercises.append(ex)
 
     lesson_context = {
         "exercises": exercises,
