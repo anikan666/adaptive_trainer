@@ -16,10 +16,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import anthropic
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.queries import get_active_convo as _get_active_convo
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
@@ -253,13 +253,3 @@ async def _set_mode(phone: str, mode: ConversationMode) -> None:
         await db.commit()
 
 
-async def _get_active_convo(db: AsyncSession, phone: str) -> Conversation | None:
-    """Return the most-recently-updated non-onboarding conversation, or None."""
-    result = await db.execute(
-        select(Conversation)
-        .where(Conversation.phone_number == phone)
-        .where(Conversation.mode != ConversationMode.onboarding)
-        .order_by(Conversation.updated_at.desc())
-        .limit(1)
-    )
-    return result.scalar_one_or_none()

@@ -7,6 +7,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.queries import get_active_convo as _get_active_convo
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
@@ -225,13 +226,3 @@ async def _get_or_create_convo(db: AsyncSession, phone: str) -> Conversation:
     return convo
 
 
-async def _get_active_convo(db: AsyncSession, phone: str) -> Conversation | None:
-    """Return the most-recently-updated non-onboarding conversation, or None."""
-    result = await db.execute(
-        select(Conversation)
-        .where(Conversation.phone_number == phone)
-        .where(Conversation.mode != ConversationMode.onboarding)
-        .order_by(Conversation.updated_at.desc())
-        .limit(1)
-    )
-    return result.scalar_one_or_none()
