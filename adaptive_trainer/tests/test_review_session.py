@@ -27,6 +27,7 @@ _PATCH_SEND = "app.services.review_session.send_message"
 _PATCH_DB = "app.services.review_session.AsyncSessionLocal"
 _PATCH_SRS = "app.services.review_session.srs.record_review"
 _PATCH_EVALUATE = "app.services.review_session.evaluate_answer"
+_PATCH_UPDATE_LEVEL = "app.services.review_session.update_level_after_session"
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +279,7 @@ async def test_handle_review_answer_last_item_sends_summary():
         patch(_PATCH_DB) as mock_db_cls,
         patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
         patch(_PATCH_SRS, new_callable=AsyncMock),
+        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=1),
     ):
         ctx = _make_convo_ctx(convo)
         mock_db_cls.return_value = ctx
@@ -290,6 +292,35 @@ async def test_handle_review_answer_last_item_sends_summary():
     summary_msg = calls[1][0][1]
     assert "Review complete" in summary_msg
     assert "1 word" in summary_msg
+
+
+@pytest.mark.asyncio
+async def test_finish_review_creates_session_record():
+    """Completing a review session calls update_level_after_session with scores."""
+    items = [
+        {
+            "lv_id": 1, "word": "hegiddira", "translations": {"roman": "how are you"},
+            "direction": "en_to_kn", "question": "Translate to Kannada: hegiddira", "expected": "how are you",
+        },
+    ]
+    ctx_data = {"items": items, "current_index": 0, "reviewed_count": 0}
+    convo = _make_convo(ConversationMode.review, ctx_data)
+
+    eval_result = {"correct": True, "score": 0.85, "feedback": "Good!", "corrected_kannada": None}
+
+    with (
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch(_PATCH_DB) as mock_db_cls,
+        patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
+        patch(_PATCH_SRS, new_callable=AsyncMock),
+        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2) as mock_update,
+    ):
+        ctx = _make_convo_ctx(convo)
+        mock_db_cls.return_value = ctx
+
+        await handle_review_answer(PHONE, "how are you")
+
+    mock_update.assert_awaited_once_with(PHONE, [0.85])
 
 
 @pytest.mark.asyncio
@@ -308,6 +339,7 @@ async def test_handle_review_answer_quality_maps_score_to_sm2():
         patch(_PATCH_DB) as mock_db_cls,
         patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
         patch(_PATCH_SRS, new_callable=AsyncMock) as mock_record,
+        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=1),
     ):
         ctx = _make_convo_ctx(convo)
         mock_db_cls.return_value = ctx

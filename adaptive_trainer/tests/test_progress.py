@@ -93,7 +93,7 @@ async def test_no_sessions_returns_nudge():
         result = await get_progress_summary(_PHONE)
 
     assert "Level: 3/5" in result
-    assert "lesson" in result.lower()
+    assert "session" in result.lower()
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_full_progress_summary():
         result = await get_progress_summary(_PHONE)
 
     assert "Level: 2/5" in result
-    assert "Lessons completed: 12" in result
+    assert "Sessions completed: 12" in result
     assert "Average score: 78%" in result
     assert "Vocabulary learned: 47 words" in result
     assert "Due for review: 5 words" in result

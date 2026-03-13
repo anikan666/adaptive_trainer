@@ -20,7 +20,7 @@ _NOT_ONBOARDED_TEXT = (
 _NO_SESSIONS_TEXT = (
     "📊 Your Progress\n"
     "Level: {level}/5\n\n"
-    "You haven't completed any lessons yet.\n"
+    "You haven't completed any sessions yet.\n"
     "Send *lesson* to start your first one! 🚀"
 )
 
@@ -73,7 +73,7 @@ async def get_progress_summary(phone: str) -> str:
     lines = [
         "📊 Your Progress",
         f"Level: {learner.level}/5",
-        f"Lessons completed: {total_lessons}",
+        f"Sessions completed: {total_lessons}",
         f"Average score: {avg_pct}%",
         f"Vocabulary learned: {total_vocab} words",
         f"Due for review: {due_today} words",

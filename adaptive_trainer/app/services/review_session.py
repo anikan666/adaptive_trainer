@@ -14,6 +14,7 @@ from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services import srs
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType
+from app.services.level_tracker import update_level_after_session
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,9 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
 
     new_index = current_index + 1
     new_reviewed = ctx.get("reviewed_count", 0) + 1
-    updated_ctx = {**ctx, "current_index": new_index, "reviewed_count": new_reviewed}
+    scores = list(ctx.get("scores", []))
+    scores.append(result["score"])
+    updated_ctx = {**ctx, "current_index": new_index, "reviewed_count": new_reviewed, "scores": scores}
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
@@ -161,10 +164,17 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
 
 
 async def _finish_review(phone: str, ctx: dict) -> None:
-    """Send the review summary and reset conversation to quick_lookup."""
+    """Send the review summary, record the session, and reset conversation."""
     reviewed = ctx.get("reviewed_count", len(ctx.get("items", [])))
     summary = f"Review complete! {reviewed} word{'s' if reviewed != 1 else ''} reviewed."
     await send_message(phone, summary)
+
+    scores = ctx.get("scores", [])
+    if scores:
+        try:
+            await update_level_after_session(phone, scores)
+        except ValueError:
+            logger.warning("Could not record review session for phone=%s", phone)
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
