@@ -17,7 +17,6 @@ from app.models.conversation import Conversation, ConversationMode  # noqa: E402
 from app.services.review_session import (  # noqa: E402
     _build_feedback,
     _format_exercise,
-    _make_question_and_expected,
     handle_review_answer,
     start_review,
 )
@@ -35,30 +34,30 @@ _PATCH_EVALUATE = "app.services.review_session.evaluate_answer"
 # ---------------------------------------------------------------------------
 
 
-def test_make_question_and_expected_uses_roman():
-    item = {"word": "hegiddira", "translations": {"roman": "how are you", "explanation": "greeting"}}
-    question, expected = _make_question_and_expected(item)
-    assert question == "Translate: hegiddira"
-    assert expected == "how are you"
-
-
-def test_make_question_and_expected_falls_back_to_explanation():
-    item = {"word": "chennagide", "translations": {"explanation": "it is good"}}
-    _, expected = _make_question_and_expected(item)
-    assert expected == "it is good"
-
-
-def test_make_question_and_expected_falls_back_to_word():
-    item = {"word": "namaskara", "translations": {}}
-    _, expected = _make_question_and_expected(item)
-    assert expected == "namaskara"
-
-
-def test_format_exercise():
-    item = {"word": "hegiddira", "translations": {"roman": "how are you"}}
+def test_format_exercise_en_to_kn():
+    item = {
+        "word": "hegiddira",
+        "translations": {"roman": "how are you"},
+        "direction": "en_to_kn",
+        "question": "Translate to Kannada: hegiddira",
+        "expected": "how are you",
+    }
     msg = _format_exercise(item, index=1, total=3)
     assert "Word 1/3" in msg
-    assert "Translate: hegiddira" in msg
+    assert "Translate to Kannada: hegiddira" in msg
+
+
+def test_format_exercise_kn_to_en():
+    item = {
+        "word": "hegiddira",
+        "translations": {"roman": "how are you"},
+        "direction": "kn_to_en",
+        "question": "Translate to English: how are you",
+        "expected": "hegiddira",
+    }
+    msg = _format_exercise(item, index=2, total=3)
+    assert "Word 2/3" in msg
+    assert "Translate to English: how are you" in msg
 
 
 def test_build_feedback_correct():
@@ -226,8 +225,14 @@ async def test_handle_review_answer_no_active_session():
 @pytest.mark.asyncio
 async def test_handle_review_answer_correct_advances_index():
     items = [
-        {"lv_id": 1, "word": "hegiddira", "translations": {"roman": "how are you"}},
-        {"lv_id": 2, "word": "chennagide", "translations": {"roman": "it is good"}},
+        {
+            "lv_id": 1, "word": "hegiddira", "translations": {"roman": "how are you"},
+            "direction": "en_to_kn", "question": "Translate to Kannada: hegiddira", "expected": "how are you",
+        },
+        {
+            "lv_id": 2, "word": "chennagide", "translations": {"roman": "it is good"},
+            "direction": "kn_to_en", "question": "Translate to English: it is good", "expected": "chennagide",
+        },
     ]
     ctx_data = {"items": items, "current_index": 0, "reviewed_count": 0}
     convo = _make_convo(ConversationMode.review, ctx_data)
@@ -258,7 +263,10 @@ async def test_handle_review_answer_correct_advances_index():
 @pytest.mark.asyncio
 async def test_handle_review_answer_last_item_sends_summary():
     items = [
-        {"lv_id": 1, "word": "hegiddira", "translations": {"roman": "how are you"}},
+        {
+            "lv_id": 1, "word": "hegiddira", "translations": {"roman": "how are you"},
+            "direction": "en_to_kn", "question": "Translate to Kannada: hegiddira", "expected": "how are you",
+        },
     ]
     ctx_data = {"items": items, "current_index": 0, "reviewed_count": 0}
     convo = _make_convo(ConversationMode.review, ctx_data)
@@ -286,7 +294,10 @@ async def test_handle_review_answer_last_item_sends_summary():
 
 @pytest.mark.asyncio
 async def test_handle_review_answer_quality_maps_score_to_sm2():
-    items = [{"lv_id": 42, "word": "namaskara", "translations": {"roman": "hello"}}]
+    items = [{
+        "lv_id": 42, "word": "namaskara", "translations": {"roman": "hello"},
+        "direction": "en_to_kn", "question": "Translate to Kannada: namaskara", "expected": "hello",
+    }]
     ctx_data = {"items": items, "current_index": 0, "reviewed_count": 0}
     convo = _make_convo(ConversationMode.review, ctx_data)
 

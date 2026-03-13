@@ -1,6 +1,7 @@
 """SRS vocabulary review session: quiz learners on due vocabulary words."""
 
 import logging
+import random
 from datetime import date
 
 from sqlalchemy import func, select
@@ -67,6 +68,18 @@ async def start_review(phone: str) -> None:
             for row in rows
         ]
 
+        for item in items:
+            english = item["word"]
+            roman = (item["translations"] or {}).get("roman", english)
+            if random.random() < 0.5:
+                item["direction"] = "en_to_kn"
+                item["question"] = f"Translate to Kannada: {english}"
+                item["expected"] = roman
+            else:
+                item["direction"] = "kn_to_en"
+                item["question"] = f"Translate to English: {roman}"
+                item["expected"] = english
+
         lesson_context = {
             "items": items,
             "current_index": 0,
@@ -109,7 +122,8 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
         return
 
     item = items[current_index]
-    question, expected = _make_question_and_expected(item)
+    question = item["question"]
+    expected = item["expected"]
 
     result = await evaluate_answer(
         exercise_type=ExerciseType.TRANSLATION,
@@ -160,19 +174,9 @@ async def _finish_review(phone: str, ctx: dict) -> None:
             await db.commit()
 
 
-def _make_question_and_expected(item: dict) -> tuple[str, str]:
-    """Build a translation question and expected answer from a vocabulary item."""
-    word = item["word"]
-    translations = item.get("translations") or {}
-    expected = translations.get("roman") or translations.get("explanation") or word
-    question = f"Translate: {word}"
-    return question, expected
-
-
 def _format_exercise(item: dict, index: int, total: int) -> str:
     """Format a vocabulary item as a review exercise message."""
-    question, _ = _make_question_and_expected(item)
-    return f"Word {index}/{total}\n{question}"
+    return f"Word {index}/{total}\n{item['question']}"
 
 
 def _build_feedback(result: dict, expected: str) -> str:
