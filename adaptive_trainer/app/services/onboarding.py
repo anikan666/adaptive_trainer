@@ -108,12 +108,36 @@ async def _get_onboarding_convo(db: AsyncSession, phone: str) -> Conversation | 
     return result.scalar_one_or_none()
 
 
+_COMMAND_KEYWORDS = {"help", "lesson", "lookup", "review", "progress", "cancel", "stop"}
+
+_ONBOARDING_HELP = (
+    "I can help you learn Kannada! But first, let's finish setting up.\n\n"
+    "Available commands (after setup):\n"
+    "• *lesson* — start a Kannada lesson\n"
+    "• *lookup <word>* — quick translation\n"
+    "• *review* — review vocabulary\n"
+    "• *progress* — view your stats\n"
+    "• *help* — show commands\n\n"
+    "What's your name?"
+)
+
+_FINISH_SETUP_FIRST = "Let's finish setting up first! 😊 What's your name?"
+
+
 async def _handle_ask_name(
     db: AsyncSession, convo: Conversation, phone: str, text: str
 ) -> None:
     name = text.strip()
     if not name:
         await send_message(phone, "I didn't catch that — what's your name?")
+        return
+
+    # Don't silently swallow commands as the user's name
+    if name.lower().split()[0] in _COMMAND_KEYWORDS:
+        if name.lower().split()[0] == "help":
+            await send_message(phone, _ONBOARDING_HELP)
+        else:
+            await send_message(phone, _FINISH_SETUP_FIRST)
         return
 
     convo.lesson_context = {"step": "ask_level", "name": name}
