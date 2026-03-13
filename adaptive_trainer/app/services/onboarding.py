@@ -158,7 +158,7 @@ async def _handle_ask_level(
 
     name = (convo.lesson_context or {}).get("name", "")
 
-    learner = Learner(phone_number=phone, level=level)
+    learner = Learner(phone_number=phone, level=level, name=name or None)
     db.add(learner)
 
     convo.lesson_context = {"step": "complete", "name": name}

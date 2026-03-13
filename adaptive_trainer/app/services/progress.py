@@ -70,8 +70,9 @@ async def get_progress_summary(phone: str) -> str:
         total_vocab, due_today = vocab_stats.one()
 
     avg_pct = round((avg_score or 0) * 100)
+    greeting = f"Hi {learner.name}! " if learner.name else ""
     lines = [
-        "📊 Your Progress",
+        f"{greeting}📊 Your Progress",
         f"Level: {learner.level}/5",
         f"Sessions completed: {total_lessons}",
         f"Average score: {avg_pct}%",

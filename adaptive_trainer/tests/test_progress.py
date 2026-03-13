@@ -23,10 +23,11 @@ from app.services.progress import (  # noqa: E402
 _PHONE = "14155550001"
 
 
-def _make_learner(level: int = 2) -> Learner:
+def _make_learner(level: int = 2, name: str | None = None) -> Learner:
     learner = MagicMock(spec=Learner)
     learner.id = 42
     learner.level = level
+    learner.name = name
     return learner
 
 
@@ -133,8 +134,50 @@ async def test_full_progress_summary():
     with patch("app.services.progress.AsyncSessionLocal", side_effect=_factory):
         result = await get_progress_summary(_PHONE)
 
+    assert "📊 Your Progress" in result
     assert "Level: 2/5" in result
     assert "Sessions completed: 12" in result
     assert "Average score: 78%" in result
     assert "Vocabulary learned: 47 words" in result
     assert "Due for review: 5 words" in result
+
+
+@pytest.mark.asyncio
+async def test_progress_summary_includes_name_greeting():
+    """Includes personalized greeting when learner has a name."""
+    learner = _make_learner(level=2, name="Priya")
+
+    mock_learner_row = MagicMock()
+    mock_learner_row.scalar_one_or_none.return_value = learner
+
+    mock_session_row = MagicMock()
+    mock_session_row.one.return_value = (5, 0.90)
+
+    mock_vocab_row = MagicMock()
+    mock_vocab_row.one.return_value = (20, 3)
+
+    dbs = []
+    for execute_mock in [
+        AsyncMock(return_value=mock_learner_row),
+        AsyncMock(return_value=mock_session_row),
+        AsyncMock(return_value=mock_vocab_row),
+    ]:
+        db = AsyncMock()
+        db.execute = execute_mock
+        db.__aenter__ = AsyncMock(return_value=db)
+        db.__aexit__ = AsyncMock(return_value=False)
+        dbs.append(db)
+
+    idx = 0
+
+    def _factory():
+        nonlocal idx
+        db = dbs[idx]
+        idx += 1
+        return db
+
+    with patch("app.services.progress.AsyncSessionLocal", side_effect=_factory):
+        result = await get_progress_summary(_PHONE)
+
+    assert "Hi Priya!" in result
+    assert "📊 Your Progress" in result
