@@ -1,7 +1,7 @@
 """WhatsApp message routing dispatcher.
 
 Dispatches incoming text messages to the appropriate handler based on:
-1. Keyword triggers in the message text (lesson, lookup, help)
+1. Keyword triggers in the message text (lesson, lookup, help, cancel/stop)
 2. Current conversation mode stored in the database
 
 Modes:
@@ -22,9 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
+from app.services import lesson_session
 from app.services import rate_limiter
-from app.services.level_tracker import get_learner_level
-from app.services.lesson import generate_lesson
 from app.services.quick_lookup import quick_lookup as _lookup
 from app.services.whatsapp_sender import send_message
 
@@ -37,6 +36,7 @@ _HELP_TEXT = (
     "• *lesson* — start a Kannada lesson\n"
     "• *lesson <topic>* — lesson on a specific topic (e.g. lesson greetings)\n"
     "• *lookup <word>* — quick Kannada translation\n"
+    "• *cancel* or *stop* — cancel the current lesson\n"
     "• *help* — show this menu"
 )
 
@@ -51,15 +51,18 @@ _OVERLOADED_TEXT = (
     "The AI service is currently overloaded. Please try again in a few minutes."
 )
 
+_CANCEL_TEXT = "Lesson cancelled. Send 'lesson' to start a new one."
+
 
 async def dispatch_message(message: IncomingTextMessage) -> None:
     """Route an incoming WhatsApp message to the appropriate handler.
 
     Keyword triggers take priority over the current conversation mode:
       - "help"             → send the help menu
-      - "lesson [<topic>]" → generate and send a lesson
+      - "cancel" / "stop"  → cancel active lesson, return to quick_lookup
+      - "lesson [<topic>]" → start a lesson session
       - "lookup <phrase>"  → translate phrase to colloquial Kannada
-      - anything else      → quick lookup (default) or lesson continuation
+      - anything else      → exercise answer (if active lesson) or quick lookup
 
     All Anthropic API errors, database errors, and WhatsApp send failures are
     caught here; a safe fallback message is sent to the user on error.
@@ -73,6 +76,10 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
 
     if text_lower == "help":
         await _try_send_fallback(phone, _HELP_TEXT)
+        return
+
+    if text_lower in ("cancel", "stop"):
+        await _cancel_lesson(phone)
         return
 
     # All paths below invoke AI — enforce the per-phone hourly rate limit.
@@ -94,11 +101,15 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
                 return
             # Empty phrase — fall through to mode-based dispatch
 
-        mode = await _get_mode(phone)
+        mode, lesson_context = await _get_convo_state(phone)
 
         if mode == ConversationMode.lesson:
-            # In an active lesson flow, bare text is treated as a new lesson topic
-            await _handle_lesson(phone, text or _DEFAULT_TOPIC)
+            exercises = lesson_context.get("exercises") if lesson_context else None
+            current_index = lesson_context.get("current_index", 0) if lesson_context else 0
+            if exercises and current_index < len(exercises):
+                await lesson_session.handle_exercise_answer(phone, text)
+            else:
+                await _handle_lesson(phone, _DEFAULT_TOPIC)
         else:
             # Default: treat bare text as a lookup phrase
             await _handle_lookup(phone, text)
@@ -124,16 +135,9 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
 
 
 async def _handle_lesson(phone: str, topic: str) -> None:
-    """Generate an adaptive lesson and send it to the learner."""
-    try:
-        level = await get_learner_level(phone)
-    except ValueError:
-        level = 1
-
-    logger.info("lesson_requested phone=%s topic=%s level=%d", phone, topic, level)
-    lesson_text = await generate_lesson(level=level, topic=topic)
-    await send_message(phone, lesson_text)
-    await _set_mode(phone, ConversationMode.lesson)
+    """Start a lesson session for the learner."""
+    logger.info("lesson_requested phone=%s topic=%s", phone, topic)
+    await lesson_session.start_lesson(phone, topic)
 
 
 async def _handle_lookup(phone: str, phrase: str) -> None:
@@ -142,6 +146,17 @@ async def _handle_lookup(phone: str, phrase: str) -> None:
     result = await _lookup(phrase)
     await send_message(phone, result)
     await _set_mode(phone, ConversationMode.quick_lookup)
+
+
+async def _cancel_lesson(phone: str) -> None:
+    """Cancel the active lesson session and return to quick_lookup mode."""
+    async with AsyncSessionLocal() as db:
+        convo = await _get_active_convo(db, phone)
+        if convo is not None:
+            convo.lesson_context = None
+            convo.mode = ConversationMode.quick_lookup
+            await db.commit()
+    await _try_send_fallback(phone, _CANCEL_TEXT)
 
 
 # ---------------------------------------------------------------------------
@@ -162,11 +177,13 @@ async def _try_send_fallback(phone: str, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _get_mode(phone: str) -> ConversationMode:
-    """Return the current conversation mode, defaulting to quick_lookup."""
+async def _get_convo_state(phone: str) -> tuple[ConversationMode, dict | None]:
+    """Return the current conversation mode and lesson_context."""
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
-        return convo.mode if convo else ConversationMode.quick_lookup
+        if convo is None:
+            return ConversationMode.quick_lookup, None
+        return convo.mode, convo.lesson_context
 
 
 async def _set_mode(phone: str, mode: ConversationMode) -> None:

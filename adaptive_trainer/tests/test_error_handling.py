@@ -26,10 +26,9 @@ from app.services import rate_limiter  # noqa: E402
 _PHONE = "14155550099"
 
 _PATCH_SEND = "app.routers.whatsapp.send_message"
-_PATCH_LESSON = "app.routers.whatsapp.generate_lesson"
+_PATCH_START_LESSON = "app.routers.whatsapp.lesson_session.start_lesson"
 _PATCH_LOOKUP = "app.routers.whatsapp._lookup"
-_PATCH_LEVEL = "app.routers.whatsapp.get_learner_level"
-_PATCH_GET_MODE = "app.routers.whatsapp._get_mode"
+_PATCH_GET_CONVO_STATE = "app.routers.whatsapp._get_convo_state"
 _PATCH_SET_MODE = "app.routers.whatsapp._set_mode"
 _PATCH_RATE = "app.routers.whatsapp.rate_limiter.is_allowed"
 
@@ -75,7 +74,7 @@ async def test_rate_limit_does_not_call_ai():
         patch(_PATCH_RATE, return_value=False),
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock) as mock_lkp,
-        patch(_PATCH_LESSON, new_callable=AsyncMock) as mock_lesson,
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_lesson,
     ):
         await dispatch_message(_make_msg("lesson greetings"))
 
@@ -102,10 +101,8 @@ async def test_rate_limit_checked_before_ai_calls():
     """is_allowed is called before any AI service."""
     with (
         patch(_PATCH_RATE, return_value=True) as mock_allowed,
-        patch(_PATCH_LEVEL, new_callable=AsyncMock, return_value=1),
-        patch(_PATCH_LESSON, new_callable=AsyncMock, return_value="Lesson"),
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock),
         patch(_PATCH_SEND, new_callable=AsyncMock),
-        patch(_PATCH_SET_MODE, new_callable=AsyncMock),
     ):
         await dispatch_message(_make_msg("lesson"))
 
@@ -128,10 +125,8 @@ async def test_anthropic_rate_limit_error_sends_fallback():
     )
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_LEVEL, new_callable=AsyncMock, return_value=1),
-        patch(_PATCH_LESSON, new_callable=AsyncMock, side_effect=exc),
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock, side_effect=exc),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
-        patch(_PATCH_SET_MODE, new_callable=AsyncMock),
     ):
         await dispatch_message(_make_msg("lesson"))
 
@@ -149,7 +144,6 @@ async def test_anthropic_api_status_error_sends_fallback():
     )
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_GET_MODE, new_callable=AsyncMock, return_value="quick_lookup"),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, side_effect=exc),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SET_MODE, new_callable=AsyncMock),
@@ -169,7 +163,7 @@ async def test_db_error_sends_fallback():
     exc = OperationalError("connection refused", None, None)
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_GET_MODE, new_callable=AsyncMock, side_effect=exc),
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock, side_effect=exc),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
     ):
         await dispatch_message(_make_msg("how are you"))
@@ -183,7 +177,7 @@ async def test_db_error_does_not_propagate():
     exc = OperationalError("connection refused", None, None)
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_GET_MODE, new_callable=AsyncMock, side_effect=exc),
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock, side_effect=exc),
         patch(_PATCH_SEND, new_callable=AsyncMock),
     ):
         # Should not raise
@@ -198,9 +192,12 @@ async def test_db_error_does_not_propagate():
 @pytest.mark.asyncio
 async def test_whatsapp_send_failure_does_not_propagate():
     """RuntimeError from send_message must be swallowed."""
+    from app.models.conversation import ConversationMode
+
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_GET_MODE, new_callable=AsyncMock, return_value="quick_lookup"),
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None)),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, side_effect=RuntimeError("send failed")),
         patch(_PATCH_SEND, new_callable=AsyncMock),
     ):
@@ -215,7 +212,8 @@ async def test_fallback_send_failure_does_not_cascade():
 
     with (
         patch(_PATCH_RATE, return_value=True),
-        patch(_PATCH_GET_MODE, new_callable=AsyncMock, side_effect=OpErr("db down", None, None)),
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
+              side_effect=OpErr("db down", None, None)),
         patch(_PATCH_SEND, new_callable=AsyncMock, side_effect=RuntimeError("WA down too")),
     ):
         # Should not raise even though both DB and fallback send fail
