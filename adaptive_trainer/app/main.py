@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.routers import webhook
+from app.routers import admin, webhook
 from app.services.whatsapp_sender import close_client as close_whatsapp_client
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Adaptive Trainer", description="Adaptive Kannada language learning via WhatsApp", lifespan=lifespan)
 
 app.include_router(webhook.router)
+app.include_router(admin.router)
 
 
 # ---------------------------------------------------------------------------
