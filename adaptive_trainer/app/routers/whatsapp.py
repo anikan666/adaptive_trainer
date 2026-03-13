@@ -87,7 +87,11 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     text = message.text.strip()
     text_lower = text.lower()
 
-    await _expire_stale_session(phone)
+    # Load conversation once — used for timeout check and mode-based dispatch.
+    convo_mode, convo_context, timed_out = await _load_convo_and_expire(phone)
+
+    if timed_out:
+        await _try_send_fallback(phone, _TIMEOUT_TEXT)
 
     if text_lower == "help":
         await _try_send_fallback(phone, _HELP_TEXT)
@@ -130,7 +134,7 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
                 return
             # Empty phrase — fall through to mode-based dispatch
 
-        mode, lesson_context = await _get_convo_state(phone)
+        mode, lesson_context = convo_mode, convo_context
 
         if mode == ConversationMode.lesson:
             exercises = lesson_context.get("exercises") if lesson_context else None
@@ -210,45 +214,36 @@ async def _try_send_fallback(phone: str, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _expire_stale_session(phone: str) -> None:
-    """If the active session is older than SESSION_TIMEOUT_MINUTES, close it.
+async def _load_convo_and_expire(
+    phone: str,
+) -> tuple[ConversationMode, dict | None, bool]:
+    """Load conversation state and expire stale sessions in a single DB round-trip.
 
-    Clears lesson_context and resets mode to quick_lookup, then sends a
-    timeout notice to the user. Does nothing if there is no active session
-    or if the session is still within the timeout window.
+    Returns (mode, lesson_context, timed_out). If the session was stale it is
+    reset to quick_lookup and timed_out is True.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=_SESSION_TIMEOUT_MINUTES)
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
-        if convo is None or convo.mode not in _ACTIVE_SESSION_MODES:
-            return
-        updated = convo.updated_at
-        if updated.tzinfo is None:
-            updated = updated.replace(tzinfo=timezone.utc)
-        if updated >= cutoff:
-            return
-        logger.info(
-            "session_timeout phone=%s mode=%s last_active=%s",
-            phone, convo.mode, updated.isoformat(),
-        )
-        convo.lesson_context = None
-        convo.mode = ConversationMode.quick_lookup
-        await db.commit()
-    await _try_send_fallback(phone, _TIMEOUT_TEXT)
-
-
-# ---------------------------------------------------------------------------
-# DB helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_convo_state(phone: str) -> tuple[ConversationMode, dict | None]:
-    """Return the current conversation mode and lesson_context."""
-    async with AsyncSessionLocal() as db:
-        convo = await _get_active_convo(db, phone)
         if convo is None:
-            return ConversationMode.quick_lookup, None
-        return convo.mode, convo.lesson_context
+            return ConversationMode.quick_lookup, None, False
+
+        # Check for stale active session
+        if convo.mode in _ACTIVE_SESSION_MODES:
+            updated = convo.updated_at
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if updated < cutoff:
+                logger.info(
+                    "session_timeout phone=%s mode=%s last_active=%s",
+                    phone, convo.mode, updated.isoformat(),
+                )
+                convo.lesson_context = None
+                convo.mode = ConversationMode.quick_lookup
+                await db.commit()
+                return ConversationMode.quick_lookup, None, True
+
+        return convo.mode, convo.lesson_context, False
 
 
 async def _set_mode(phone: str, mode: ConversationMode) -> None:

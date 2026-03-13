@@ -109,6 +109,23 @@ async def handle_exercise_answer(phone: str, learner_answer: str) -> None:
             return
         ctx = dict(convo.lesson_context)
 
+    # Validate lesson_context schema — guard against corruption
+    required_keys = ("exercises", "current_index", "scores")
+    if not all(k in ctx for k in required_keys):
+        logger.warning(
+            "Corrupt lesson_context for phone=%s: missing keys %s",
+            phone,
+            [k for k in required_keys if k not in ctx],
+        )
+        async with AsyncSessionLocal() as db:
+            convo = await _get_active_convo(db, phone)
+            if convo is not None:
+                convo.lesson_context = None
+                convo.mode = ConversationMode.quick_lookup
+                await db.commit()
+        await send_message(phone, _NO_LESSON_TEXT)
+        return
+
     exercises = ctx["exercises"]
     current_index = ctx["current_index"]
 
