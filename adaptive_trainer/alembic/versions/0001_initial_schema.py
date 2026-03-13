@@ -79,7 +79,6 @@ def upgrade() -> None:
         ["vocabulary_item_id"],
     )
 
-    op.execute("CREATE TYPE conversation_mode AS ENUM ('lesson', 'quick_lookup', 'onboarding')")
 
     op.create_table(
         "conversations",
@@ -87,7 +86,7 @@ def upgrade() -> None:
         sa.Column("phone_number", sa.String(20), nullable=False),
         sa.Column(
             "mode",
-            sa.Enum("lesson", "quick_lookup", "onboarding", name="conversation_mode", create_type=False),
+            sa.Enum("lesson", "quick_lookup", "onboarding", name="conversation_mode", create_type=True),
             nullable=False,
         ),
         sa.Column("lesson_context", postgresql.JSONB(), nullable=True),

@@ -1,0 +1,11 @@
+"""Mock WhatsApp sender for local testing — logs messages instead of sending."""
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def send_message(to: str, text: str) -> dict:
+    logger.info("=== MOCK WHATSAPP MESSAGE ===")
+    logger.info("To: %s", to)
+    logger.info("Text: %s", text)
+    logger.info("=== END MESSAGE ===")
+    return {"messages": [{"id": "mock-message-id"}]}

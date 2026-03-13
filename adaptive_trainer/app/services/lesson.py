@@ -3,32 +3,22 @@
 from app.services.claude_client import SYSTEM_LESSON_GENERATION, ask_sonnet
 
 _LESSON_PROMPT_TEMPLATE = """\
-Generate a Kannada language lesson for a learner at level {level}/5.
-Topic: {topic}
+Teach me a quick Kannada lesson on: {topic}
+My level: {level}/5
 
-Structure the lesson as follows:
-1. Brief explanation (2-3 sentences)
-2. Key vocabulary (5 words/phrases): each entry as "Roman transliteration — English meaning"
-3. Example sentences (3-5): each as "Roman transliteration — English translation"
-4. One cultural note relevant to the topic
+Keep it bite-sized for WhatsApp:
+- 1-2 sentence intro (no heading, no "Overview")
+- 3 key phrases: "transliteration — English meaning"
+- 2 example sentences: "transliteration — English translation"
+- 1 quick cultural tip (one sentence)
 
-{srs_context}All Kannada must be in Roman transliteration only.
+{srs_context}All Kannada in Roman transliteration only. No markdown headers. Keep the whole thing under 500 characters.
 """
 
-_SRS_PREFIX = "Prioritise these vocabulary items the learner is due to review: {items}\n\n"
+_SRS_PREFIX = "Work these review words into the lesson: {items}\n\n"
 
 
 async def generate_lesson(level: int, topic: str, due_items: list[str] | None = None) -> str:
-    """Generate an adaptive lesson for the given learner level and topic.
-
-    Args:
-        level: Learner proficiency level (1–5).
-        topic: Lesson topic in English (e.g. "greetings", "food ordering").
-        due_items: Optional list of SRS-due vocabulary items to weave in.
-
-    Returns:
-        Formatted lesson text ready to send via WhatsApp.
-    """
     srs_context = ""
     if due_items:
         srs_context = _SRS_PREFIX.format(items=", ".join(due_items))

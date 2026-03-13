@@ -1,4 +1,5 @@
 import logging
+logging.basicConfig(level=logging.INFO)
 
 import anthropic
 from fastapi import FastAPI, Request
