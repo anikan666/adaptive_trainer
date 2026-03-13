@@ -28,6 +28,7 @@ from app.services import rate_limiter
 from app.services import review_session
 from app.services.progress import get_progress_summary
 from app.services.quick_lookup import quick_lookup as _lookup
+from app.services.topics import get_topic_suggestions
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ _HELP_TEXT = (
     "QuickLearn Kannada commands:\n"
     "• *lesson* — start a Kannada lesson\n"
     "• *lesson <topic>* — lesson on a specific topic (e.g. lesson greetings)\n"
+    "• *topics* — get topic suggestions for your level\n"
     "• *review* — review vocabulary words due today\n"
     "• *lookup <word>* — quick Kannada translation\n"
     "• *progress* — view your learning stats\n"
@@ -98,6 +100,11 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     if text_lower == "progress":
         summary = await get_progress_summary(phone)
         await _try_send_fallback(phone, summary)
+        return
+
+    if text_lower == "topics":
+        suggestions = await get_topic_suggestions(phone)
+        await _try_send_fallback(phone, suggestions)
         return
 
     if text_lower == "review":
