@@ -13,6 +13,7 @@ This module is stateless: all state is read from and written to the DB.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import anthropic
 from sqlalchemy import select
@@ -57,6 +58,11 @@ _OVERLOADED_TEXT = (
 
 _CANCEL_TEXT = "Lesson cancelled. Send 'lesson' to start a new one."
 
+_SESSION_TIMEOUT_MINUTES = 30
+_TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new one."
+
+_ACTIVE_SESSION_MODES = {ConversationMode.lesson, ConversationMode.review}
+
 
 async def dispatch_message(message: IncomingTextMessage) -> None:
     """Route an incoming WhatsApp message to the appropriate handler.
@@ -77,6 +83,8 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     phone = message.sender_phone
     text = message.text.strip()
     text_lower = text.lower()
+
+    await _expire_stale_session(phone)
 
     if text_lower == "help":
         await _try_send_fallback(phone, _HELP_TEXT)
@@ -185,6 +193,38 @@ async def _try_send_fallback(phone: str, text: str) -> None:
         await send_message(phone, text)
     except Exception as exc:
         logger.error("fallback_send_failure phone=%s err=%s", phone, exc)
+
+
+# ---------------------------------------------------------------------------
+# Session timeout
+# ---------------------------------------------------------------------------
+
+
+async def _expire_stale_session(phone: str) -> None:
+    """If the active session is older than SESSION_TIMEOUT_MINUTES, close it.
+
+    Clears lesson_context and resets mode to quick_lookup, then sends a
+    timeout notice to the user. Does nothing if there is no active session
+    or if the session is still within the timeout window.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=_SESSION_TIMEOUT_MINUTES)
+    async with AsyncSessionLocal() as db:
+        convo = await _get_active_convo(db, phone)
+        if convo is None or convo.mode not in _ACTIVE_SESSION_MODES:
+            return
+        updated = convo.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        if updated >= cutoff:
+            return
+        logger.info(
+            "session_timeout phone=%s mode=%s last_active=%s",
+            phone, convo.mode, updated.isoformat(),
+        )
+        convo.lesson_context = None
+        convo.mode = ConversationMode.quick_lookup
+        await db.commit()
+    await _try_send_fallback(phone, _TIMEOUT_TEXT)
 
 
 # ---------------------------------------------------------------------------
