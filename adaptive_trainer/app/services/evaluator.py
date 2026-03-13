@@ -5,7 +5,7 @@ import re
 import unicodedata
 
 from app.services.claude_client import SYSTEM_ANSWER_EVALUATION, ask_sonnet
-from app.services.exercise import ExerciseType
+from app.services.exercise import ExerciseType, _extract_json
 
 
 def _normalize(text: str) -> str:
@@ -59,13 +59,6 @@ Return a JSON object with exactly these fields:
 
 Return only the JSON object, no other text.
 """
-
-
-def _extract_json(text: str) -> str:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError(f"No JSON object found in evaluator response: {text!r}")
-    return match.group(0)
 
 
 def _exact_match_result(question: str) -> dict:

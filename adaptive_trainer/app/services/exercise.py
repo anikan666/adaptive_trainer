@@ -1,7 +1,6 @@
 """Exercise generator: MCQ, fill-in-blank, and translation exercises for Kannada learners."""
 
 import json
-import re
 from enum import Enum
 
 from app.services.claude_client import SYSTEM_EXERCISE_GENERATION, ask_sonnet
@@ -120,20 +119,51 @@ def _validate_exercise(ex: dict) -> bool:
     return True
 
 
+def _find_balanced(text: str, open_ch: str, close_ch: str) -> str | None:
+    """Find the first balanced substring delimited by open_ch/close_ch."""
+    start = text.find(open_ch)
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            if in_string:
+                escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
 def _extract_json(text: str) -> str:
     """Extract the first JSON object from a string."""
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    result = _find_balanced(text, "{", "}")
+    if result is None:
         raise ValueError(f"No JSON object found in response: {text!r}")
-    return match.group(0)
+    return result
 
 
 def _extract_json_array(text: str) -> str:
     """Extract the first JSON array from a string."""
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if not match:
+    result = _find_balanced(text, "[", "]")
+    if result is None:
         raise ValueError(f"No JSON array found in response: {text!r}")
-    return match.group(0)
+    return result
 
 
 async def generate_exercise(

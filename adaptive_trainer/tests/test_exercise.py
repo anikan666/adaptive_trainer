@@ -15,10 +15,72 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/
 
 from app.services.exercise import (  # noqa: E402
     ExerciseType,
+    _extract_json,
+    _extract_json_array,
+    _find_balanced,
     _validate_exercise,
     generate_exercise,
     generate_exercises_batch,
 )
+
+# ---------------------------------------------------------------------------
+# _find_balanced / _extract_json / _extract_json_array unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_extract_json_not_greedy():
+    """Old greedy regex matched first { to LAST }, capturing garbage."""
+    text = 'Here is the result: {"answer": "neeru"} Hope that helps!'
+    assert _extract_json(text) == '{"answer": "neeru"}'
+
+
+def test_extract_json_with_trailing_braces():
+    """Trailing braces after the JSON object must NOT be included."""
+    text = '{"a": 1} some text with {extra} braces'
+    assert _extract_json(text) == '{"a": 1}'
+
+
+def test_extract_json_nested_objects():
+    """Nested braces must be handled correctly."""
+    obj = '{"a": {"b": {"c": 1}}, "d": 2}'
+    text = f"prefix {obj} suffix"
+    assert _extract_json(text) == obj
+
+
+def test_extract_json_with_braces_in_strings():
+    """Braces inside JSON string values must not break balance counting."""
+    obj = '{"feedback": "Use {curly} braces", "score": 1}'
+    text = f"Note: {obj} done."
+    assert _extract_json(text) == obj
+
+
+def test_extract_json_array_not_greedy():
+    """Old greedy regex matched first [ to LAST ]."""
+    text = 'Result: [1, 2, 3] and then [extra] stuff'
+    assert _extract_json_array(text) == "[1, 2, 3]"
+
+
+def test_extract_json_array_nested():
+    arr = '[[1, 2], [3, 4]]'
+    text = f"Here: {arr} end"
+    assert _extract_json_array(text) == arr
+
+
+def test_extract_json_raises_on_no_match():
+    with pytest.raises(ValueError, match="No JSON object"):
+        _extract_json("no json here")
+
+
+def test_extract_json_array_raises_on_no_match():
+    with pytest.raises(ValueError, match="No JSON array"):
+        _extract_json_array("no array here")
+
+
+def test_find_balanced_handles_escaped_quotes():
+    """Escaped quotes inside strings must not toggle string mode."""
+    obj = '{"msg": "say \\"hello\\""}'
+    assert _find_balanced(obj, "{", "}") == obj
+
 
 _MCQ_RESPONSE = json.dumps({
     "type": "mcq",
