@@ -13,7 +13,13 @@ os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "test_phone_id")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/test")
 
 from app.models.conversation import Conversation, ConversationMode  # noqa: E402
-from app.routers.whatsapp import _CANCEL_TEXT, _HELP_TEXT, dispatch_message  # noqa: E402
+from app.routers.whatsapp import (  # noqa: E402
+    _CANCEL_TEXT,
+    _HELP_TEXT,
+    _NO_ACTIVE_SESSION_TEXT,
+    _cancel_lesson,
+    dispatch_message,
+)
 from app.schemas.webhook import IncomingTextMessage  # noqa: E402
 
 
@@ -105,6 +111,73 @@ async def test_cancel_does_not_hit_rate_limiter():
         await dispatch_message(_make_message("cancel"))
 
     mock_rl.assert_not_called()
+
+
+_PATCH_GET_ACTIVE_CONVO = "app.routers.whatsapp._get_active_convo"
+_PATCH_DB_SESSION = "app.routers.whatsapp.AsyncSessionLocal"
+
+
+def _mock_db_session(convo):
+    """Return a mock AsyncSessionLocal that yields *convo* from _get_active_convo."""
+    db = AsyncMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    return db
+
+
+@pytest.mark.asyncio
+async def test_cancel_lesson_with_active_lesson_sends_cancel_text():
+    convo = _make_convo(ConversationMode.lesson)
+    db = _mock_db_session(convo)
+    with (
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_GET_ACTIVE_CONVO, new_callable=AsyncMock, return_value=convo),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await _cancel_lesson("14155550001")
+
+    mock_send.assert_awaited_once_with("14155550001", _CANCEL_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_cancel_lesson_with_active_review_sends_cancel_text():
+    convo = _make_convo(ConversationMode.review)
+    db = _mock_db_session(convo)
+    with (
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_GET_ACTIVE_CONVO, new_callable=AsyncMock, return_value=convo),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await _cancel_lesson("14155550001")
+
+    mock_send.assert_awaited_once_with("14155550001", _CANCEL_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_cancel_lesson_no_active_session_sends_nothing_to_cancel():
+    db = _mock_db_session(None)
+    with (
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_GET_ACTIVE_CONVO, new_callable=AsyncMock, return_value=None),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await _cancel_lesson("14155550001")
+
+    mock_send.assert_awaited_once_with("14155550001", _NO_ACTIVE_SESSION_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_cancel_lesson_in_quick_lookup_mode_sends_nothing_to_cancel():
+    convo = _make_convo(ConversationMode.quick_lookup)
+    db = _mock_db_session(convo)
+    with (
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_GET_ACTIVE_CONVO, new_callable=AsyncMock, return_value=convo),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await _cancel_lesson("14155550001")
+
+    mock_send.assert_awaited_once_with("14155550001", _NO_ACTIVE_SESSION_TEXT)
 
 
 # ---------------------------------------------------------------------------

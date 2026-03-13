@@ -57,6 +57,7 @@ _OVERLOADED_TEXT = (
 )
 
 _CANCEL_TEXT = "Lesson cancelled. Send 'lesson' to start a new one."
+_NO_ACTIVE_SESSION_TEXT = "Nothing to cancel. Send 'help' to see what I can do."
 
 _SESSION_TIMEOUT_MINUTES = 30
 _TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new one."
@@ -175,11 +176,13 @@ async def _cancel_lesson(phone: str) -> None:
     """Cancel the active lesson session and return to quick_lookup mode."""
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
-        if convo is not None:
+        if convo is not None and convo.mode in _ACTIVE_SESSION_MODES:
             convo.lesson_context = None
             convo.mode = ConversationMode.quick_lookup
             await db.commit()
-    await _try_send_fallback(phone, _CANCEL_TEXT)
+            await _try_send_fallback(phone, _CANCEL_TEXT)
+            return
+    await _try_send_fallback(phone, _NO_ACTIVE_SESSION_TEXT)
 
 
 # ---------------------------------------------------------------------------
