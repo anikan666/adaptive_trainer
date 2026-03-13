@@ -2,6 +2,7 @@
 
 import logging
 import random
+import re
 from datetime import date
 
 from sqlalchemy import select
@@ -45,6 +46,14 @@ async def start_lesson(phone: str, topic: str) -> None:
         level = await get_learner_level(phone)
     except ValueError:
         level = 1
+
+    async with AsyncSessionLocal() as db:
+        convo = await _get_active_convo(db, phone)
+        if convo is not None and convo.mode in (ConversationMode.lesson, ConversationMode.review):
+            ctx = convo.lesson_context
+            if ctx and (ctx.get("exercises") or ctx.get("items")):
+                await send_message(phone, "You have a session in progress. Type 'cancel' to end it or reply to continue.")
+                return
 
     logger.info("start_lesson phone=%s topic=%s level=%d", phone, topic, level)
 
@@ -112,12 +121,16 @@ async def handle_exercise_answer(phone: str, learner_answer: str) -> None:
 
     resolved_answer = _resolve_mcq_answer(exercise, ex_type, learner_answer)
 
-    result = await evaluate_answer(
-        exercise_type=ex_type,
-        question=exercise["question"],
-        expected_answer=exercise["answer"],
-        learner_answer=resolved_answer,
-    )
+    skip_words = ('skip', 'idk', "i don't know", 'pass', 'dk')
+    if learner_answer.lower().strip() in skip_words:
+        result = {"score": 0.0, "correct": False, "feedback": "Skipped."}
+    else:
+        result = await evaluate_answer(
+            exercise_type=ex_type,
+            question=exercise["question"],
+            expected_answer=exercise["answer"],
+            learner_answer=resolved_answer,
+        )
 
     await send_message(phone, _build_feedback(result, exercise))
 
@@ -168,8 +181,8 @@ async def finish_lesson(phone: str) -> None:
 
     for exercise in exercises:
         kannada = exercise.get("answer", "")
-        english = exercise.get("question", "")
         explanation = exercise.get("explanation", "")
+        english = _extract_english_meaning(exercise)
         if kannada:
             await _add_or_update_vocabulary(
                 phone, english_word=english, kannada_word=kannada, explanation=explanation,
@@ -263,6 +276,43 @@ def _build_feedback(result: dict, exercise: dict) -> str:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+# Pattern for MCQ questions like "Which Kannada word means 'hello'?"
+_MCQ_MEANING_RE = re.compile(r"""means\s+['"\u2018\u2019\u201c\u201d](.+?)['"\u2018\u2019\u201c\u201d]""", re.IGNORECASE)
+
+
+def _extract_english_meaning(exercise: dict) -> str:
+    """Return the best English meaning to store as vocabulary for an exercise.
+
+    - **translation**: the question IS the English sentence -- use it directly.
+    - **mcq**: parse the English meaning from the question pattern
+      ``"Which Kannada word means '<word>'?"``.  Falls back to explanation.
+    - **fill_in_blank**: the question is a Kannada sentence with a blank --
+      use the explanation which contains the English translation.
+    - Any other type: prefer explanation, fall back to question.
+    """
+    ex_type = exercise.get("type", "")
+    question = exercise.get("question", "")
+    explanation = exercise.get("explanation", "")
+
+    if ex_type == ExerciseType.TRANSLATION:
+        # The question is already the English sentence to translate.
+        return question
+
+    if ex_type == ExerciseType.MCQ:
+        m = _MCQ_MEANING_RE.search(question)
+        if m:
+            return m.group(1).strip()
+        # Fall back to explanation if we can't parse the pattern.
+        return explanation or question
+
+    if ex_type == ExerciseType.FILL_IN_BLANK:
+        # The question is a Kannada sentence with ___ -- not useful as English.
+        return explanation or question
+
+    # Unknown type: prefer explanation over a possibly non-English question.
+    return explanation or question
 
 
 async def _get_or_create_convo(db: AsyncSession, phone: str) -> Conversation:

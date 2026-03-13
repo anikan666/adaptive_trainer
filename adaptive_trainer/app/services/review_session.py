@@ -39,6 +39,14 @@ async def start_review(phone: str) -> None:
         phone: Learner's phone number in E.164 format.
     """
     async with AsyncSessionLocal() as db:
+        convo = await _get_active_convo(db, phone)
+        if convo is not None and convo.mode in (ConversationMode.lesson, ConversationMode.review):
+            ctx = convo.lesson_context
+            if ctx and (ctx.get("exercises") or ctx.get("items")):
+                await send_message(phone, "You have a session in progress. Type 'cancel' to end it or reply to continue.")
+                return
+
+    async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
             await send_message(phone, _NO_LEARNER_TEXT)
@@ -52,6 +60,8 @@ async def start_review(phone: str) -> None:
             .where(LearnerVocabulary.due_date <= today)
         )
         rows = result.all()
+        total_due = len(rows)
+        rows = rows[:10]
 
         if not rows:
             next_result = await db.execute(
@@ -88,6 +98,7 @@ async def start_review(phone: str) -> None:
         "items": items,
         "current_index": 0,
         "reviewed_count": 0,
+        "total_due": total_due,
     }
 
     async with AsyncSessionLocal() as db:
@@ -130,14 +141,19 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
     question = item["question"]
     expected = item["expected"]
 
-    result = await evaluate_answer(
-        exercise_type=ExerciseType.TRANSLATION,
-        question=question,
-        expected_answer=expected,
-        learner_answer=learner_answer,
-    )
+    skip_words = ('skip', 'idk', "i don't know", 'pass', 'dk')
+    if learner_answer.lower().strip() in skip_words:
+        result = {"score": 0.0, "correct": False, "feedback": "Skipped."}
+        quality = 0
+    else:
+        result = await evaluate_answer(
+            exercise_type=ExerciseType.TRANSLATION,
+            question=question,
+            expected_answer=expected,
+            learner_answer=learner_answer,
+        )
+        quality = round(result["score"] * 5)
 
-    quality = round(result["score"] * 5)
     async with AsyncSessionLocal() as db:
         await srs.record_review(db, item["lv_id"], quality)
 
@@ -170,7 +186,11 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
 async def _finish_review(phone: str, ctx: dict) -> None:
     """Send the review summary, record the session, and reset conversation."""
     reviewed = ctx.get("reviewed_count", len(ctx.get("items", [])))
+    total_due = ctx.get("total_due", reviewed)
+    remaining = total_due - reviewed
     summary = f"Review complete! {reviewed} word{'s' if reviewed != 1 else ''} reviewed."
+    if remaining > 0:
+        summary += f" {remaining} more word{'s' if remaining != 1 else ''} still due — send 'review' again to continue."
     await send_message(phone, summary)
 
     scores = ctx.get("scores", [])
