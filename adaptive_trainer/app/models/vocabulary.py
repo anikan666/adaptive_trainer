@@ -38,6 +38,7 @@ class LearnerVocabulary(Base):
     interval: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     repetitions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_exercise_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

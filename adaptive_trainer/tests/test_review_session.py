@@ -389,8 +389,10 @@ async def test_handle_review_answer_quality_maps_score_to_sm2():
 
     # score 0.4 → quality round(0.4 * 5) = 2
     mock_record.assert_awaited_once()
-    _, kwargs = mock_record.call_args
     # positional: db, lv_id, quality
     call_args = mock_record.call_args[0]
     assert call_args[1] == 42  # lv_id
     assert call_args[2] == 2   # quality
+    # exercise_type should be passed as translation for review sessions
+    call_kwargs = mock_record.call_args[1]
+    assert call_kwargs.get("exercise_type") == "translation"

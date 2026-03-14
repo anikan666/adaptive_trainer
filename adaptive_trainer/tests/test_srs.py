@@ -64,6 +64,40 @@ def test_ease_factor_decreases_on_low_quality():
     assert ease < 2.5
 
 
+def test_production_exercise_boosts_ease_increase():
+    """Production exercises (translation) should get 1.5x ease increase."""
+    ease_no_prod, _, _ = sm2_calculate(2.5, 1, 0, 5)
+    ease_prod, _, _ = sm2_calculate(2.5, 1, 0, 5, exercise_type="translation")
+    # Both should increase, but production should increase more
+    assert ease_prod > ease_no_prod
+    # The delta should be 1.5x
+    delta_no_prod = ease_no_prod - 2.5
+    delta_prod = ease_prod - 2.5
+    assert abs(delta_prod - delta_no_prod * 1.5) < 1e-9
+
+
+def test_production_weight_not_applied_on_negative_delta():
+    """Production weight should only apply to positive ease changes."""
+    ease_no_prod, _, _ = sm2_calculate(2.5, 1, 0, 3)
+    ease_prod, _, _ = sm2_calculate(2.5, 1, 0, 3, exercise_type="translation")
+    # Quality 3 produces negative delta, so no weight applied
+    assert ease_no_prod == ease_prod
+
+
+def test_mcq_does_not_get_production_weight():
+    """MCQ (recognition) should not get the production weight."""
+    ease_mcq, _, _ = sm2_calculate(2.5, 1, 0, 5, exercise_type="mcq")
+    ease_none, _, _ = sm2_calculate(2.5, 1, 0, 5)
+    assert ease_mcq == ease_none
+
+
+def test_situational_prompt_gets_production_weight():
+    """Situational prompt is also a production type."""
+    ease_none, _, _ = sm2_calculate(2.5, 1, 0, 5)
+    ease_sit, _, _ = sm2_calculate(2.5, 1, 0, 5, exercise_type="situational_prompt")
+    assert ease_sit > ease_none
+
+
 def test_quality_3_is_success():
     _, interval, reps = sm2_calculate(2.5, 1, 0, 3)
     assert reps == 1  # treated as success
@@ -118,6 +152,7 @@ async def test_record_review_updates_fields():
     lv.ease_factor = 2.5
     lv.interval = 6
     lv.repetitions = 2
+    lv.last_exercise_type = None
     mock_db.get.return_value = lv
 
     today = date.today()
@@ -131,6 +166,41 @@ async def test_record_review_updates_fields():
     assert lv.repetitions == 3
     assert lv.due_date == today + timedelta(days=expected_interval)
     mock_db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_record_review_stores_exercise_type():
+    mock_db = AsyncMock()
+
+    lv = MagicMock()
+    lv.ease_factor = 2.5
+    lv.interval = 1
+    lv.repetitions = 0
+    lv.last_exercise_type = None
+    mock_db.get.return_value = lv
+
+    await record_review(mock_db, learner_vocab_id=1, quality=5, exercise_type="translation")
+
+    assert lv.last_exercise_type == "translation"
+
+
+@pytest.mark.asyncio
+async def test_record_review_production_boosts_ease():
+    mock_db = AsyncMock()
+
+    lv = MagicMock()
+    lv.ease_factor = 2.5
+    lv.interval = 1
+    lv.repetitions = 0
+    lv.last_exercise_type = None
+    mock_db.get.return_value = lv
+
+    await record_review(mock_db, learner_vocab_id=1, quality=5, exercise_type="translation")
+
+    # Production exercise should get 1.5x positive ease delta
+    expected_delta = (0.1 - (5 - 5) * (0.08 + (5 - 5) * 0.02)) * 1.5
+    expected_ease = 2.5 + expected_delta
+    assert abs(lv.ease_factor - expected_ease) < 1e-9
 
 
 @pytest.mark.asyncio

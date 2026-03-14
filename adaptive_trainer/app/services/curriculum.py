@@ -88,13 +88,26 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if learner is None:
             return False
 
-        # Count total and mastered words in a single query
+        # Count total and mastered words in a single query.
+        # Production exercises (translation, situational_prompt) get 1.5x
+        # effective ease for the mastery check.
         from sqlalchemy import case, func as sa_func
+
+        _MASTERY_THRESHOLD = 2.5
+        _PRODUCTION_WEIGHT = 1.5
+        effective_ease = case(
+            (
+                LearnerVocabulary.last_exercise_type.in_(["translation", "situational_prompt"]),
+                LearnerVocabulary.ease_factor * _PRODUCTION_WEIGHT,
+            ),
+            else_=LearnerVocabulary.ease_factor,
+        )
+
         mastered_subq = (
             select(VocabularyItem.word)
             .join(LearnerVocabulary, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
             .where(LearnerVocabulary.learner_id == learner.id)
-            .where(LearnerVocabulary.ease_factor >= 2.5)
+            .where(effective_ease >= _MASTERY_THRESHOLD)
         ).subquery()
 
         result = await db.execute(

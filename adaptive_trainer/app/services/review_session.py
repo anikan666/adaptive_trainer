@@ -193,7 +193,7 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
         quality = round(result["score"] * 5)
 
     async with AsyncSessionLocal() as db:
-        await srs.record_review(db, item["lv_id"], quality)
+        await srs.record_review(db, item["lv_id"], quality, exercise_type=ExerciseType.TRANSLATION)
 
     await send_message(phone, _build_feedback(result, expected))
 

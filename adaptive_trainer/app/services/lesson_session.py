@@ -253,6 +253,7 @@ async def finish_lesson(phone: str) -> None:
             await _add_or_update_vocabulary(
                 phone, english_word=english, kannada_word=kannada, explanation=explanation,
                 unit_id=unit_id,
+                exercise_type=exercise.get("type"),
             )
 
     # Check curriculum unit completion and level progression
@@ -422,6 +423,7 @@ async def _add_or_update_vocabulary(
     kannada_word: str,
     explanation: str,
     unit_id: int | None = None,
+    exercise_type: str | None = None,
 ) -> None:
     """Add a word to the learner's SRS vocabulary deck if not already present.
 
@@ -435,6 +437,7 @@ async def _add_or_update_vocabulary(
         kannada_word: Kannada answer in Roman transliteration.
         explanation: Additional context about the word.
         unit_id: Optional curriculum unit ID to associate with the vocabulary.
+        exercise_type: Exercise type that introduced this word (e.g. "mcq", "translation").
     """
     async with AsyncSessionLocal() as db:
         learner_id = await _get_learner_id(db, phone)
@@ -459,7 +462,11 @@ async def _add_or_update_vocabulary(
             .where(LearnerVocabulary.learner_id == learner_id)
             .where(LearnerVocabulary.vocabulary_item_id == vocab_item.id)
         )
-        if result.scalar_one_or_none() is not None:
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            if exercise_type is not None:
+                existing.last_exercise_type = exercise_type
+                await db.commit()
             return
 
         lv_kwargs: dict = {
@@ -470,6 +477,8 @@ async def _add_or_update_vocabulary(
         # Set unit_id if the LearnerVocabulary model supports it (added by ql-q1e)
         if unit_id is not None and hasattr(LearnerVocabulary, "unit_id"):
             lv_kwargs["unit_id"] = unit_id
+        if exercise_type is not None:
+            lv_kwargs["last_exercise_type"] = exercise_type
         lv = LearnerVocabulary(**lv_kwargs)
         db.add(lv)
         await db.commit()
