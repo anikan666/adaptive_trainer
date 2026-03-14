@@ -12,7 +12,9 @@ Modes:
 This module is stateless: all state is read from and written to the DB.
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 import anthropic
@@ -104,6 +106,11 @@ _TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new o
 
 _ACTIVE_SESSION_MODES = {ConversationMode.lesson, ConversationMode.review, ConversationMode.gateway_test}
 
+# Per-user lock to serialize concurrent messages from the same phone number.
+# Prevents race conditions where parallel messages read/modify session state
+# simultaneously (e.g. timeout check + handler both touching the same row).
+_user_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
 # ---------------------------------------------------------------------------
 # Typo correction — static map of common misspellings
 # ---------------------------------------------------------------------------
@@ -175,9 +182,19 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     All Anthropic API errors, database errors, and WhatsApp send failures are
     caught here; a safe fallback message is sent to the user on error.
 
+    Messages from the same phone number are serialized via a per-user asyncio
+    lock to prevent race conditions in session state management.
+
     Args:
         message: Normalized incoming WhatsApp text message.
     """
+    phone = message.sender_phone
+    async with _user_locks[phone]:
+        await _dispatch_message_inner(message)
+
+
+async def _dispatch_message_inner(message: IncomingTextMessage) -> None:
+    """Inner dispatch logic, called under per-user lock."""
     phone = message.sender_phone
     text = message.text.strip()
 

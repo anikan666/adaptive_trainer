@@ -1,5 +1,6 @@
 """Tests for the WhatsApp message routing dispatcher."""
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -631,3 +632,63 @@ async def test_typo_progres_triggers_progress():
         await dispatch_message(_make_message("progres"))
 
     mock_prog.assert_awaited_once_with("14155550001")
+
+
+# ---------------------------------------------------------------------------
+# Per-user lock serialization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_messages_from_same_user_are_serialized():
+    """Two messages from the same phone must not overlap execution."""
+    execution_order: list[str] = []
+
+    async def slow_load_convo(phone):
+        execution_order.append("enter")
+        await asyncio.sleep(0.05)
+        execution_order.append("exit")
+        return (ConversationMode.quick_lookup, None, False)
+
+    with (
+        patch(_PATCH_LOAD_CONVO, side_effect=slow_load_convo),
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="result"),
+        patch(_PATCH_SET_MODE, new_callable=AsyncMock),
+        patch("app.routers.whatsapp.rate_limiter.is_allowed", return_value=True),
+    ):
+        msg1 = _make_message("hello", phone="same_user")
+        msg2 = _make_message("world", phone="same_user")
+        await asyncio.gather(dispatch_message(msg1), dispatch_message(msg2))
+
+    # With serialization: enter, exit, enter, exit (no interleaving)
+    assert execution_order == ["enter", "exit", "enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_messages_from_different_users_run_in_parallel():
+    """Messages from different phone numbers should NOT block each other."""
+    active_count = 0
+    max_concurrent = 0
+
+    async def tracking_load_convo(phone):
+        nonlocal active_count, max_concurrent
+        active_count += 1
+        max_concurrent = max(max_concurrent, active_count)
+        await asyncio.sleep(0.05)
+        active_count -= 1
+        return (ConversationMode.quick_lookup, None, False)
+
+    with (
+        patch(_PATCH_LOAD_CONVO, side_effect=tracking_load_convo),
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+        patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="result"),
+        patch(_PATCH_SET_MODE, new_callable=AsyncMock),
+        patch("app.routers.whatsapp.rate_limiter.is_allowed", return_value=True),
+    ):
+        msg1 = _make_message("hello", phone="user_a")
+        msg2 = _make_message("world", phone="user_b")
+        await asyncio.gather(dispatch_message(msg1), dispatch_message(msg2))
+
+    # Different users should have run concurrently
+    assert max_concurrent == 2
