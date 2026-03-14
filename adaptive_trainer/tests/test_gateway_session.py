@@ -37,22 +37,19 @@ def _make_convo(lesson_context=None, mode=ConversationMode.gateway_test):
 
 
 class TestGatewayScenarios:
-    def test_level_1_scenario_exists(self):
-        scenario = get_gateway_scenario(1)
+    def test_ring_0_scenario_exists(self):
+        scenario = get_gateway_scenario(0)
         assert scenario is not None
-        assert scenario["level"] == 1
         assert scenario["expected_turns"] == 4
         assert len(scenario["evaluation_criteria"]) > 0
 
-    def test_level_2_scenario_exists(self):
-        scenario = get_gateway_scenario(2)
+    def test_ring_1_scenario_exists(self):
+        scenario = get_gateway_scenario(1)
         assert scenario is not None
-        assert scenario["level"] == 2
         assert scenario["expected_turns"] == 4
 
-    def test_nonexistent_level_returns_none(self):
+    def test_nonexistent_ring_returns_none(self):
         assert get_gateway_scenario(99) is None
-        assert get_gateway_scenario(0) is None
 
 
 # ---------------------------------------------------------------------------
@@ -159,12 +156,12 @@ class TestStartGateway:
                     mock_db = AsyncMock()
                     mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_db)
                     mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-                    await start_gateway(PHONE, 1)
+                    await start_gateway(PHONE, 0)
 
         # Should send the scenario setup text
         mock_send.assert_called_once()
         sent_text = mock_send.call_args[0][1]
-        assert "Gateway Test: Level 1" in sent_text
+        assert "Gateway Test" in sent_text
         assert "darshini" in sent_text
 
 

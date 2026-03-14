@@ -23,10 +23,11 @@ from app.services.progress import (  # noqa: E402
 _PHONE = "14155550001"
 
 
-def _make_learner(level: int = 2, name: str | None = None) -> Learner:
+def _make_learner(level: int = 2, name: str | None = None, current_ring: int = 1) -> Learner:
     learner = MagicMock(spec=Learner)
     learner.id = 42
     learner.level = level
+    learner.current_ring = current_ring
     learner.name = name
     return learner
 
@@ -63,7 +64,7 @@ async def test_not_onboarded_returns_friendly_message():
 @pytest.mark.asyncio
 async def test_no_sessions_returns_nudge():
     """Returns no-sessions nudge when learner exists but has zero sessions."""
-    learner = _make_learner(level=3)
+    learner = _make_learner(level=3, current_ring=2)
 
     # Call 1: select Learner
     mock_learner_row = MagicMock()
@@ -93,7 +94,7 @@ async def test_no_sessions_returns_nudge():
     with patch("app.services.progress.AsyncSessionLocal", side_effect=_session_factory):
         result = await get_progress_summary(_PHONE)
 
-    assert "Level: 3/5" in result
+    assert "Ring: 2/4" in result
     assert "session" in result.lower()
 
 
@@ -135,7 +136,7 @@ async def test_full_progress_summary():
         result = await get_progress_summary(_PHONE)
 
     assert "📊 Your Progress" in result
-    assert "Level: 2/5" in result
+    assert "Ring: 1/4" in result
     assert "Sessions completed: 12" in result
     assert "Average score: 78%" in result
     assert "Vocabulary learned: 47 words" in result

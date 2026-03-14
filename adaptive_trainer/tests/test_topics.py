@@ -19,7 +19,7 @@ from app.services.topics import (  # noqa: E402
     _NOT_ONBOARDED_TEXT,
     _SUGGESTIONS_COUNT,
     _TOPIC_POOLS,
-    _bracket_for_level,
+    _bracket_for_ring,
     get_topic_suggestions,
 )
 
@@ -45,28 +45,28 @@ def _make_learner(level: int) -> Learner:
 
 
 # ---------------------------------------------------------------------------
-# _bracket_for_level unit tests
+# _bracket_for_ring unit tests
 # ---------------------------------------------------------------------------
 
 
-def test_bracket_level_1():
-    assert _bracket_for_level(1) == "beginner"
+def test_bracket_ring_0():
+    assert _bracket_for_ring(0) == "beginner"
 
 
-def test_bracket_level_2():
-    assert _bracket_for_level(2) == "beginner"
+def test_bracket_ring_1():
+    assert _bracket_for_ring(1) == "beginner"
 
 
-def test_bracket_level_3():
-    assert _bracket_for_level(3) == "intermediate"
+def test_bracket_ring_2():
+    assert _bracket_for_ring(2) == "intermediate"
 
 
-def test_bracket_level_4():
-    assert _bracket_for_level(4) == "intermediate"
+def test_bracket_ring_3():
+    assert _bracket_for_ring(3) == "intermediate"
 
 
-def test_bracket_level_5():
-    assert _bracket_for_level(5) == "advanced"
+def test_bracket_ring_4():
+    assert _bracket_for_ring(4) == "advanced"
 
 
 # ---------------------------------------------------------------------------
