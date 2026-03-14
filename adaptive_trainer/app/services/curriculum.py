@@ -110,7 +110,7 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         )
         mastered_words = set(mastered_result.scalars().all())
 
-        if mastered_words < unit_words:
+        if not unit_words.issubset(mastered_words):
             return False
 
         # Unit is complete — stamp learner_unit_progress
