@@ -74,14 +74,14 @@ class TestParseEvaluation:
     def test_invalid_json_fallback(self):
         raw = "This is not JSON at all"
         result = _parse_evaluation(raw)
-        assert result["passed"] is True
-        assert result["score"] == 0.5
+        assert result["passed"] is False
+        assert result["score"] == 0.0
         assert "This is not JSON" in result["feedback"]
 
     def test_empty_string_fallback(self):
         result = _parse_evaluation("")
-        assert result["passed"] is True
-        assert result["score"] == 0.5
+        assert result["passed"] is False
+        assert result["score"] == 0.0
 
 
 # ---------------------------------------------------------------------------

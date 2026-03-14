@@ -200,9 +200,9 @@ async def _finish_gateway(phone: str) -> None:
     except Exception:
         logger.exception("Gateway evaluation failed for phone=%s", phone)
         evaluation = {
-            "passed": True,
-            "score": 0.5,
-            "feedback": "Great effort! Keep practicing.",
+            "passed": False,
+            "score": 0.0,
+            "feedback": "Evaluation could not be completed. Please try again.",
             "strengths": [],
             "areas_to_improve": [],
         }
@@ -291,11 +291,11 @@ def _parse_evaluation(raw: str) -> dict:
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Fallback: assume they passed with moderate score
+    # Fallback: do not assume pass on unparseable evaluation
     return {
-        "passed": True,
-        "score": 0.5,
-        "feedback": raw[:200] if raw else "Good effort!",
+        "passed": False,
+        "score": 0.0,
+        "feedback": raw[:200] if raw else "Evaluation could not be completed. Please try again.",
         "strengths": [],
         "areas_to_improve": [],
     }
