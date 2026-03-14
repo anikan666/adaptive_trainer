@@ -8,6 +8,7 @@ from sqlalchemy.sql import func
 from app.db.base import Base
 
 
+
 class VocabularyItem(Base):
     __tablename__ = "vocabulary_items"
 
@@ -29,6 +30,9 @@ class LearnerVocabulary(Base):
         ForeignKey("vocabulary_items.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+    unit_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("curriculum_units.id", ondelete="SET NULL"), nullable=True
     )
     ease_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
     interval: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
