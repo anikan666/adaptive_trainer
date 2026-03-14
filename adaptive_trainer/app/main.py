@@ -1,3 +1,4 @@
+import asyncio
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.routers import admin, webhook
+from app.services.timeout_warning import run_timeout_warning_loop
 from app.services.whatsapp_sender import close_client as close_whatsapp_client
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    warning_task = asyncio.create_task(run_timeout_warning_loop())
     yield
+    warning_task.cancel()
+    try:
+        await warning_task
+    except asyncio.CancelledError:
+        pass
     await close_whatsapp_client()
 
 
