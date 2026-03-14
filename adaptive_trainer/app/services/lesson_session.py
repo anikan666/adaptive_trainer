@@ -13,6 +13,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.models.curriculum import LearnerUnitProgress
 from app.models.learner import Learner
+from app.models.session import SessionRecord
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType, generate_exercises_batch
@@ -62,7 +63,7 @@ async def start_lesson(phone: str, topic: str) -> None:
                 return
 
     # Determine if this is a curriculum-driven or freeform lesson
-    is_default_topic = topic.lower().strip() in ("lesson", "kannada", "")
+    is_default_topic = topic.lower().strip() in ("lesson", "kannada", "", "everyday conversation")
     unit = None
     new_words: list[dict] = []
     review_words: list[str] = []
@@ -274,6 +275,14 @@ async def finish_lesson(phone: str) -> None:
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
+    avg_score = sum(scores) / total if total else 0.0
+
+    # Record session
+    async with AsyncSessionLocal() as db:
+        learner_id = await _get_learner_id(db, phone)
+        if learner_id is not None:
+            db.add(SessionRecord(learner_id=learner_id, avg_score=avg_score))
+            await db.commit()
 
     celebration = await record_session_streak(phone)
 

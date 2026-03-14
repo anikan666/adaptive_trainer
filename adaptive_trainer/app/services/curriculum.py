@@ -89,31 +89,28 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if learner is None:
             return False
 
-        from sqlalchemy import case, func as sa_func
-
         _MASTERY_EASE = 2.0
         _MASTERY_INTERVAL = 6
 
-        mastered_subq = (
-            select(VocabularyItem.word)
-            .join(LearnerVocabulary, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
-            .where(LearnerVocabulary.learner_id == learner.id)
-            .where(LearnerVocabulary.ease_factor > _MASTERY_EASE)
-            .where(LearnerVocabulary.interval > _MASTERY_INTERVAL)
-        ).subquery()
-
-        result = await db.execute(
-            select(
-                sa_func.count().label("total"),
-                sa_func.count(case((UnitVocabulary.english.in_(select(mastered_subq.c.word)), 1))).label("mastered"),
-            )
-            .where(UnitVocabulary.unit_id == unit_id)
+        # All vocabulary IDs in the unit
+        total_result = await db.execute(
+            select(UnitVocabulary.id).where(UnitVocabulary.unit_id == unit_id)
         )
-        row = result.one()
-        if row.total == 0:
+        unit_vocab_ids = set(total_result.scalars().all())
+        if not unit_vocab_ids:
             return False
 
-        if row.mastered < row.total:
+        # Vocabulary IDs the learner has mastered in this unit
+        mastered_result = await db.execute(
+            select(LearnerVocabulary.vocabulary_item_id)
+            .where(LearnerVocabulary.learner_id == learner.id)
+            .where(LearnerVocabulary.unit_id == unit_id)
+            .where(LearnerVocabulary.ease_factor > _MASTERY_EASE)
+            .where(LearnerVocabulary.interval > _MASTERY_INTERVAL)
+        )
+        mastered_ids = set(mastered_result.scalars().all())
+
+        if not unit_vocab_ids <= mastered_ids:
             return False
 
         # Unit is complete — stamp learner_unit_progress

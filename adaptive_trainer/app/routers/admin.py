@@ -25,7 +25,7 @@ async def admin_dashboard(db: AsyncSession = Depends(get_db)):
     active_sessions = (
         await db.execute(
             select(func.count(Conversation.id)).where(
-                Conversation.mode.in_([ConversationMode.lesson, ConversationMode.review])
+                Conversation.mode.in_([ConversationMode.lesson, ConversationMode.review, ConversationMode.gateway_test])
             )
         )
     ).scalar() or 0

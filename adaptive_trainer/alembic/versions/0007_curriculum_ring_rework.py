@@ -1,4 +1,4 @@
-"""Curriculum models rework: rename level to ring, enrich atoms, add current_ring to learner
+"""Curriculum ring rework + gateway_test enum: rename level to ring, enrich atoms, add current_ring, add gateway_test mode
 
 Revision ID: 0007
 Revises: 0006
@@ -17,6 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # --- Add gateway_test to conversation_mode enum ---
+    op.execute("ALTER TYPE conversation_mode ADD VALUE IF NOT EXISTS 'gateway_test'")
+
     # --- CurriculumUnit: rename level -> ring ---
     op.alter_column("curriculum_units", "level", new_column_name="ring")
     op.drop_index("ix_curriculum_units_level", table_name="curriculum_units")

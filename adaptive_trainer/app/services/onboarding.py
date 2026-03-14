@@ -165,6 +165,7 @@ async def _handle_ask_level(
     learner = Learner(phone_number=phone, current_ring=ring, level=ring + 1, name=name or None)
     db.add(learner)
 
+    convo.mode = ConversationMode.quick_lookup
     convo.lesson_context = {"step": "complete", "name": name}
     await db.commit()
 

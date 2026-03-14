@@ -238,6 +238,10 @@ async def _finish_gateway(phone: str) -> None:
             "\nKeep practicing! Review the vocabulary and try again. "
             "Send 'lesson' to continue studying, or 'review' to practice words."
         )
+        logger.info(
+            "gateway_fail phone=%s ring=%d score=%.2f areas=%s",
+            phone, level, score, areas,
+        )
 
     await send_message(phone, "\n".join(result_parts))
 

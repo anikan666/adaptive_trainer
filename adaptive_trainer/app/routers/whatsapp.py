@@ -214,6 +214,7 @@ async def _dispatch_message_inner(message: IncomingTextMessage) -> None:
 
     if timed_out:
         await _try_send_fallback(phone, _TIMEOUT_TEXT)
+        return
 
     if text_lower == "help":
         help_text = _MODE_HELP.get(convo_mode, _HELP_TEXT)

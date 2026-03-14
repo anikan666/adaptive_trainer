@@ -11,6 +11,7 @@ from app.db.queries import get_active_convo as _get_active_convo
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
+from app.models.session import SessionRecord
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services import srs
 from app.services.curriculum import check_ring_progression, check_unit_completion
@@ -227,6 +228,15 @@ async def _finish_review(phone: str, ctx: dict) -> None:
     reviewed = ctx.get("reviewed_count", len(ctx.get("items", [])))
     total_due = ctx.get("total_due", reviewed)
     remaining = total_due - reviewed
+
+    # Record session
+    scores = ctx.get("scores", [])
+    avg_score = sum(scores) / len(scores) if scores else 0.0
+    async with AsyncSessionLocal() as db:
+        learner = await _get_learner(db, phone)
+        if learner is not None:
+            db.add(SessionRecord(learner_id=learner.id, avg_score=avg_score))
+            await db.commit()
 
     celebration = await record_session_streak(phone)
 
