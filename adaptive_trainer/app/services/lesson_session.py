@@ -484,28 +484,31 @@ async def _get_curriculum_context(
         (unit, new_words, review_words) where unit is a CurriculumUnit or None
         if the curriculum service is not available or no unit is found.
     """
-    unit = await get_next_unit(phone)
-    if unit is None:
-        return None, [], []
+    from app.services.curriculum import _get_learner, _first_uncompleted_unit, _get_unit_new_words_for_learner
 
-    new_words_raw = await get_unit_new_words(phone, unit.id, count=_NEW_WORD_COUNT)
-    # Convert UnitVocabulary objects to dicts for downstream use
-    new_words = [
-        {
-            "word": w.word,
-            "roman": w.roman,
-            "english": w.english,
-            "usage_example": getattr(w, "usage_example", ""),
-        }
-        for w in new_words_raw
-    ]
-
-    # Get review words from SRS due items
-    review_words: list[str] = []
     async with AsyncSessionLocal() as db:
-        learner_id = await _get_learner_id(db, phone)
-        if learner_id is not None:
-            review_words = await get_due_items(db, learner_id, limit=_REVIEW_WORD_COUNT)
+        learner = await _get_learner(db, phone)
+        if learner is None:
+            return None, [], []
+
+        unit = await _first_uncompleted_unit(db, learner.id, learner.current_ring)
+        if unit is None:
+            return None, [], []
+
+        new_words_raw = await _get_unit_new_words_for_learner(
+            db, learner.id, unit.id, count=_NEW_WORD_COUNT
+        )
+        new_words = [
+            {
+                "word": w.word,
+                "roman": w.roman,
+                "english": w.english,
+                "usage_example": getattr(w, "usage_example", ""),
+            }
+            for w in new_words_raw
+        ]
+
+        review_words = await get_due_items(db, learner.id, limit=_REVIEW_WORD_COUNT)
 
     return unit, new_words, review_words
 

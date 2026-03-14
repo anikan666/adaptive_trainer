@@ -53,15 +53,21 @@ async def start_review(phone: str) -> None:
             return
 
         today = date.today()
-        result = await db.execute(
+        due_filter = (
             select(LearnerVocabulary.id, VocabularyItem.word, VocabularyItem.translations)
             .join(VocabularyItem, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
             .where(LearnerVocabulary.learner_id == learner.id)
             .where(LearnerVocabulary.due_date <= today)
         )
+        count_result = await db.execute(
+            select(func.count())
+            .select_from(LearnerVocabulary)
+            .where(LearnerVocabulary.learner_id == learner.id)
+            .where(LearnerVocabulary.due_date <= today)
+        )
+        total_due = count_result.scalar_one()
+        result = await db.execute(due_filter.limit(10))
         rows = result.all()
-        total_due = len(rows)
-        rows = rows[:10]
 
         if not rows:
             next_result = await db.execute(

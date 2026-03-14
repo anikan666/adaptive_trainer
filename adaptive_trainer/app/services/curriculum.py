@@ -31,6 +31,34 @@ async def get_next_unit(phone: str) -> CurriculumUnit | None:
         return await _first_uncompleted_unit(db, learner.id, learner.current_ring)
 
 
+async def _get_unit_new_words_for_learner(
+    db: AsyncSession, learner_id: int, unit_id: int, count: int = 5
+) -> list[UnitVocabulary]:
+    """Return up to *count* unseen words from the unit for the given learner.
+
+    Uses an existing session — no separate round trip.
+    """
+    seen_subq = (
+        select(VocabularyItem.word)
+        .join(
+            LearnerVocabulary,
+            LearnerVocabulary.vocabulary_item_id == VocabularyItem.id,
+        )
+        .where(LearnerVocabulary.learner_id == learner_id)
+        .where(LearnerVocabulary.unit_id == unit_id)
+    ).subquery()
+
+    stmt = (
+        select(UnitVocabulary)
+        .where(UnitVocabulary.unit_id == unit_id)
+        .where(UnitVocabulary.english.notin_(select(seen_subq.c.word)))
+        .order_by(UnitVocabulary.id)
+        .limit(count)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def get_unit_new_words(
     phone: str, unit_id: int, count: int = 5
 ) -> list[UnitVocabulary]:
@@ -43,27 +71,7 @@ async def get_unit_new_words(
         learner = await _get_learner(db, phone)
         if learner is None:
             return []
-
-        # Words the learner has already seen in this unit
-        seen_subq = (
-            select(VocabularyItem.word)
-            .join(
-                LearnerVocabulary,
-                LearnerVocabulary.vocabulary_item_id == VocabularyItem.id,
-            )
-            .where(LearnerVocabulary.learner_id == learner.id)
-            .where(LearnerVocabulary.unit_id == unit_id)
-        ).subquery()
-
-        stmt = (
-            select(UnitVocabulary)
-            .where(UnitVocabulary.unit_id == unit_id)
-            .where(UnitVocabulary.english.notin_(select(seen_subq.c.word)))
-            .order_by(UnitVocabulary.id)
-            .limit(count)
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+        return await _get_unit_new_words_for_learner(db, learner.id, unit_id, count)
 
 
 async def check_unit_completion(phone: str, unit_id: int) -> bool:
@@ -80,28 +88,27 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if learner is None:
             return False
 
-        # All words in the unit
-        total_result = await db.execute(
-            select(UnitVocabulary.english).where(UnitVocabulary.unit_id == unit_id)
-        )
-        unit_words = set(total_result.scalars().all())
-        if not unit_words:
-            return False
-
-        # Words the learner has mastered (ease_factor >= 2.5)
-        mastered_result = await db.execute(
+        # Count total and mastered words in a single query
+        from sqlalchemy import case, func as sa_func
+        mastered_subq = (
             select(VocabularyItem.word)
-            .join(
-                LearnerVocabulary,
-                LearnerVocabulary.vocabulary_item_id == VocabularyItem.id,
-            )
+            .join(LearnerVocabulary, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
             .where(LearnerVocabulary.learner_id == learner.id)
             .where(LearnerVocabulary.ease_factor >= 2.5)
-            .where(VocabularyItem.word.in_(unit_words))
-        )
-        mastered_words = set(mastered_result.scalars().all())
+        ).subquery()
 
-        if not unit_words <= mastered_words:
+        result = await db.execute(
+            select(
+                sa_func.count().label("total"),
+                sa_func.count(case((UnitVocabulary.english.in_(select(mastered_subq.c.word)), 1))).label("mastered"),
+            )
+            .where(UnitVocabulary.unit_id == unit_id)
+        )
+        row = result.one()
+        if row.total == 0:
+            return False
+
+        if row.mastered < row.total:
             return False
 
         # Unit is complete — stamp learner_unit_progress

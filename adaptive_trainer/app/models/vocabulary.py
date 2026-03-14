@@ -36,7 +36,7 @@ class LearnerVocabulary(Base):
     )
     ease_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
     interval: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     repetitions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
