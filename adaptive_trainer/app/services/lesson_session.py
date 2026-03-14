@@ -11,11 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.queries import get_active_convo as _get_active_convo
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
+from app.models.curriculum import LearnerUnitProgress
 from app.models.learner import Learner
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType, generate_exercises_batch
 from app.services.lesson import generate_lesson
+from app.services.curriculum import (
+    check_level_progression,
+    check_unit_completion,
+    get_next_unit,
+    get_unit_new_words,
+)
 from app.services.level_tracker import get_learner_level, update_level_after_session
 from app.services.srs import get_due_items
 from app.services.whatsapp_sender import send_message
@@ -263,18 +270,13 @@ async def finish_lesson(phone: str) -> None:
     # Check curriculum unit completion and level progression
     curriculum_note = ""
     if unit_id is not None:
-        try:
-            from app.services.curriculum import check_level_progression, check_unit_completion
-
-            unit_complete = await check_unit_completion(phone, unit_id)
-            if unit_complete:
-                curriculum_note = "\nUnit complete!"
-                progression_level = await check_level_progression(phone)
-                if progression_level is not None:
-                    new_level = progression_level
-                    curriculum_note += f" Advanced to level {progression_level}!"
-        except ImportError:
-            logger.debug("curriculum service not yet available, skipping completion check")
+        unit_complete = await check_unit_completion(phone, unit_id)
+        if unit_complete:
+            curriculum_note = "\nUnit complete!"
+            progression_level = await check_level_progression(phone)
+            if progression_level is not None:
+                new_level = progression_level
+                curriculum_note += f" Advanced to level {progression_level}!"
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
@@ -493,12 +495,6 @@ async def _get_curriculum_context(
         (unit, new_words, review_words) where unit is a CurriculumUnit or None
         if the curriculum service is not available or no unit is found.
     """
-    try:
-        from app.services.curriculum import get_next_unit, get_unit_new_words
-    except ImportError:
-        logger.debug("curriculum service not yet available, falling back to freeform")
-        return None, [], []
-
     unit = await get_next_unit(phone)
     if unit is None:
         return None, [], []
@@ -527,12 +523,6 @@ async def _get_curriculum_context(
 
 async def _ensure_unit_started(phone: str, unit_id: int) -> None:
     """Create or verify learner_unit_progress record for this unit."""
-    try:
-        from app.models.curriculum import LearnerUnitProgress
-    except ImportError:
-        logger.debug("curriculum models not yet available, skipping unit progress")
-        return
-
     async with AsyncSessionLocal() as db:
         learner_id = await _get_learner_id(db, phone)
         if learner_id is None:

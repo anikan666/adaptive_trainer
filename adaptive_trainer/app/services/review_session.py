@@ -13,6 +13,7 @@ from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services import srs
+from app.services.curriculum import check_level_progression, check_unit_completion
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType
 from app.services.level_tracker import update_level_after_session
@@ -225,6 +226,16 @@ async def _finish_review(phone: str, ctx: dict) -> None:
             await update_level_after_session(phone, scores)
         except ValueError:
             logger.warning("Could not record review session for phone=%s", phone)
+
+    # Curriculum: check unit completion for reviewed words' units
+    unit_ids_checked: set[int] = set()
+    for item in ctx.get("items", []):
+        uid = item.get("unit_id")
+        if uid is not None and uid not in unit_ids_checked:
+            unit_ids_checked.add(uid)
+            completed = await check_unit_completion(phone, uid)
+            if completed:
+                await check_level_progression(phone)
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
