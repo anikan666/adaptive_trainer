@@ -1,9 +1,12 @@
 """Exercise generator: MCQ, fill-in-blank, and translation exercises for Kannada learners."""
 
 import json
+import logging
 from enum import Enum
 
 from app.services.claude_client import SYSTEM_EXERCISE_GENERATION, ask_sonnet
+
+logger = logging.getLogger(__name__)
 
 
 class ExerciseType(str, Enum):
@@ -134,6 +137,9 @@ _REQUIRED_EXERCISE_KEYS = {"type", "question", "answer", "distractors", "explana
 _VALID_TYPES = {e.value for e in ExerciseType}
 
 
+_TYPES_REQUIRING_DISTRACTORS = {ExerciseType.MCQ.value, ExerciseType.FILL_IN_BLANK.value}
+
+
 def _validate_exercise(ex: dict) -> bool:
     """Return True if an exercise dict has all required keys with valid values."""
     if not isinstance(ex, dict):
@@ -144,6 +150,13 @@ def _validate_exercise(ex: dict) -> bool:
         return False
     if not isinstance(ex["distractors"], list):
         return False
+    # MCQ and fill_in_blank must have at least one distractor
+    if ex["type"] in _TYPES_REQUIRING_DISTRACTORS and len(ex["distractors"]) == 0:
+        return False
+    # All string fields must be non-empty
+    for key in ("type", "question", "answer", "explanation"):
+        if not isinstance(ex.get(key), str) or not ex[key].strip():
+            return False
     return True
 
 
@@ -251,9 +264,7 @@ async def generate_exercises_batch(
 
     Returns:
         List of exercise dicts with keys: type, question, answer, distractors, explanation.
-
-    Raises:
-        ValueError: If exercises fail validation after one retry.
+        Falls back to individual generation if batch validation fails after retry.
     """
     lesson_context = _LESSON_CONTEXT_SECTION.format(lesson_text=lesson_text) if lesson_text else "\n"
     target_words_context = ""
@@ -281,7 +292,17 @@ async def generate_exercises_batch(
         if attempt == 0:
             continue
 
-    raise ValueError(
-        f"Exercise generation failed validation after retry: "
-        f"expected {count} valid exercises, got {len(valid)}"
+    # Batch failed validation after retry — fall back to individual generation
+    logger.warning(
+        "Batch generation failed validation (expected %d, got %d valid). "
+        "Falling back to individual generation.",
+        count, len(valid),
     )
+    exercise_types = list(ExerciseType)
+    fallback: list[dict] = list(valid)  # keep any valid exercises from batch
+    for i in range(count - len(fallback)):
+        ex_type = exercise_types[i % len(exercise_types)]
+        ex = await generate_exercise(ex_type, level, topic, lesson_text)
+        if _validate_exercise(ex):
+            fallback.append(ex)
+    return _dedup_consecutive_types(fallback[:count])

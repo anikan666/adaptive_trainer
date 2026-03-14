@@ -229,6 +229,34 @@ def test_validate_exercise_rejects_non_dict():
     assert _validate_exercise(None) is False
 
 
+def test_validate_exercise_rejects_mcq_without_distractors():
+    bad = {**_VALID_EX, "type": "mcq", "distractors": []}
+    assert _validate_exercise(bad) is False
+
+
+def test_validate_exercise_rejects_fill_in_blank_without_distractors():
+    bad = {**_VALID_EX, "type": "fill_in_blank", "distractors": []}
+    assert _validate_exercise(bad) is False
+
+
+def test_validate_exercise_accepts_translation_without_distractors():
+    ex = {**_VALID_EX, "type": "translation", "distractors": []}
+    assert _validate_exercise(ex) is True
+
+
+def test_validate_exercise_accepts_situational_prompt_without_distractors():
+    ex = {**_VALID_EX, "type": "situational_prompt", "distractors": []}
+    assert _validate_exercise(ex) is True
+
+
+def test_validate_exercise_rejects_empty_string_fields():
+    for key in ("question", "answer", "explanation"):
+        bad = {**_VALID_EX, key: ""}
+        assert _validate_exercise(bad) is False, f"should reject empty {key}"
+        bad2 = {**_VALID_EX, key: "   "}
+        assert _validate_exercise(bad2) is False, f"should reject whitespace-only {key}"
+
+
 # ---------------------------------------------------------------------------
 # generate_exercises_batch validation tests
 # ---------------------------------------------------------------------------
@@ -277,15 +305,18 @@ async def test_batch_retries_on_invalid_then_succeeds():
 
 
 @pytest.mark.asyncio
-async def test_batch_raises_after_two_failures():
-    """Both attempts return invalid exercises — should raise ValueError."""
+async def test_batch_falls_back_to_individual_after_two_failures():
+    """Both batch attempts return invalid exercises — falls back to individual generation."""
     bad_response = json.dumps([{"type": "bad"}])
-    mock = AsyncMock(return_value=bad_response)
+    # First 2 calls are batch attempts (return bad), next 2 are individual fallbacks (return good)
+    mock = AsyncMock(side_effect=[bad_response, bad_response, _MCQ_RESPONSE, _FILL_RESPONSE])
     with patch("app.services.exercise.ask_sonnet", mock):
-        with pytest.raises(ValueError, match="failed validation after retry"):
-            await generate_exercises_batch(count=2, level=2, topic="food")
+        result = await generate_exercises_batch(count=2, level=2, topic="food")
 
-    assert mock.call_count == 2
+    assert len(result) == 2
+    assert all(_validate_exercise(ex) for ex in result)
+    # 2 batch attempts + 2 individual fallbacks = 4 calls
+    assert mock.call_count == 4
 
 
 @pytest.mark.asyncio
