@@ -15,10 +15,13 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/
 from app.models.conversation import Conversation, ConversationMode  # noqa: E402
 from app.routers.whatsapp import (  # noqa: E402
     _CANCEL_TEXT,
+    _GATEWAY_HELP_TEXT,
     _HELP_TEXT,
     _INPUT_TOO_LONG_TEXT,
+    _LESSON_HELP_TEXT,
     _MAX_INPUT_LENGTH,
     _NO_ACTIVE_SESSION_TEXT,
+    _REVIEW_HELP_TEXT,
     _TYPO_MAP,
     _cancel_lesson,
     _correct_typo,
@@ -47,7 +50,7 @@ def _make_convo(mode: ConversationMode) -> Conversation:
 # Helpers: patch DB and service calls together
 # ---------------------------------------------------------------------------
 
-_PATCH_GET_CONVO_STATE = "app.routers.whatsapp._get_convo_state"
+_PATCH_LOAD_CONVO = "app.routers.whatsapp._load_convo_and_expire"
 _PATCH_SET_MODE = "app.routers.whatsapp._set_mode"
 _PATCH_SEND = "app.routers.whatsapp.send_message"
 _PATCH_START_LESSON = "app.routers.whatsapp.lesson_session.start_lesson"
@@ -93,26 +96,63 @@ async def test_message_at_max_length_is_accepted():
 
 
 @pytest.mark.asyncio
-async def test_help_sends_help_text():
+async def test_help_sends_generic_help_in_quick_lookup():
     with (
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock) as mock_state,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
     ):
         await dispatch_message(_make_message("help"))
 
     mock_send.assert_awaited_once_with("14155550001", _HELP_TEXT)
-    mock_state.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_help_case_insensitive():
     with (
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
     ):
         await dispatch_message(_make_message("HELP"))
 
     mock_send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_help_in_lesson_mode_shows_lesson_help():
+    with (
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.lesson, None, False)),
+    ):
+        await dispatch_message(_make_message("help"))
+
+    mock_send.assert_awaited_once_with("14155550001", _LESSON_HELP_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_help_in_review_mode_shows_review_help():
+    with (
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.review, None, False)),
+    ):
+        await dispatch_message(_make_message("help"))
+
+    mock_send.assert_awaited_once_with("14155550001", _REVIEW_HELP_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_help_in_gateway_mode_shows_gateway_help():
+    with (
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.gateway_test, None, False)),
+    ):
+        await dispatch_message(_make_message("help"))
+
+    mock_send.assert_awaited_once_with("14155550001", _GATEWAY_HELP_TEXT)
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +162,11 @@ async def test_help_case_insensitive():
 
 @pytest.mark.asyncio
 async def test_cancel_triggers_cancel_lesson():
-    with patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel,
+    ):
         await dispatch_message(_make_message("cancel"))
 
     mock_cancel.assert_awaited_once_with("14155550001")
@@ -130,7 +174,11 @@ async def test_cancel_triggers_cancel_lesson():
 
 @pytest.mark.asyncio
 async def test_stop_triggers_cancel_lesson():
-    with patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel,
+    ):
         await dispatch_message(_make_message("stop"))
 
     mock_cancel.assert_awaited_once_with("14155550001")
@@ -140,6 +188,8 @@ async def test_stop_triggers_cancel_lesson():
 async def test_cancel_does_not_hit_rate_limiter():
     """cancel/stop bypasses the rate limiter (no AI call)."""
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_CANCEL, new_callable=AsyncMock),
         patch("app.routers.whatsapp.rate_limiter.is_allowed") as mock_rl,
     ):
@@ -222,7 +272,11 @@ async def test_cancel_lesson_in_quick_lookup_mode_sends_nothing_to_cancel():
 
 @pytest.mark.asyncio
 async def test_lesson_keyword_calls_start_lesson():
-    with patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
+    ):
         await dispatch_message(_make_message("lesson"))
 
     mock_start.assert_awaited_once_with("14155550001", "everyday conversation")
@@ -230,22 +284,29 @@ async def test_lesson_keyword_calls_start_lesson():
 
 @pytest.mark.asyncio
 async def test_lesson_with_topic_passes_topic():
-    with patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
+    ):
         await dispatch_message(_make_message("lesson greetings"))
 
     mock_start.assert_awaited_once_with("14155550001", "greetings")
 
 
 @pytest.mark.asyncio
-async def test_lesson_keyword_does_not_query_mode():
-    """lesson keyword short-circuits mode dispatch."""
+async def test_lesson_keyword_short_circuits_mode_dispatch():
+    """lesson keyword short-circuits mode dispatch (no exercise handler called)."""
     with (
-        patch(_PATCH_START_LESSON, new_callable=AsyncMock),
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock) as mock_state,
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_HANDLE_EXERCISE, new_callable=AsyncMock) as mock_exercise,
     ):
         await dispatch_message(_make_message("lesson"))
 
-    mock_state.assert_not_awaited()
+    mock_start.assert_awaited_once()
+    mock_exercise.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +317,9 @@ async def test_lesson_keyword_does_not_query_mode():
 @pytest.mark.asyncio
 async def test_lookup_keyword_triggers_lookup():
     with (
-        patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="ನಮಸ್ಕಾರ (namaskara) — greeting") as mock_lkp,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="namaskara — greeting") as mock_lkp,
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SET_MODE, new_callable=AsyncMock),
     ):
@@ -267,8 +330,10 @@ async def test_lookup_keyword_triggers_lookup():
 
 @pytest.mark.asyncio
 async def test_lookup_sends_result_and_sets_mode():
-    result = "ನಮಸ್ಕಾರ (namaskara) — greeting"
+    result = "namaskara — greeting"
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value=result),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SET_MODE, new_callable=AsyncMock) as mock_set,
@@ -283,8 +348,8 @@ async def test_lookup_sends_result_and_sets_mode():
 async def test_lookup_empty_phrase_falls_through_to_mode():
     """'lookup ' with no phrase falls through to mode-based dispatch."""
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.quick_lookup, None)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="result") as mock_lkp,
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SET_MODE, new_callable=AsyncMock),
@@ -302,8 +367,8 @@ async def test_lookup_empty_phrase_falls_through_to_mode():
 @pytest.mark.asyncio
 async def test_bare_text_in_quick_lookup_mode_triggers_lookup():
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.quick_lookup, None)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="res") as mock_lkp,
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SET_MODE, new_callable=AsyncMock),
@@ -318,8 +383,8 @@ async def test_bare_text_in_lesson_mode_with_active_session_handles_exercise():
     """Bare text during an active lesson calls handle_exercise_answer."""
     active_ctx = {"exercises": [{"type": "mcq", "question": "q"}], "current_index": 0}
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.lesson, active_ctx)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.lesson, active_ctx, False)),
         patch(_PATCH_HANDLE_EXERCISE, new_callable=AsyncMock) as mock_exercise,
     ):
         await dispatch_message(_make_message("A"))
@@ -331,8 +396,8 @@ async def test_bare_text_in_lesson_mode_with_active_session_handles_exercise():
 async def test_bare_text_in_lesson_mode_no_session_starts_new_lesson():
     """Lesson mode with no active context starts a new lesson."""
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.lesson, None)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.lesson, None, False)),
         patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
     ):
         await dispatch_message(_make_message("food ordering"))
@@ -345,8 +410,8 @@ async def test_bare_text_in_lesson_mode_exhausted_session_starts_new_lesson():
     """Lesson mode with all exercises done starts a new lesson."""
     finished_ctx = {"exercises": [{"type": "mcq", "question": "q"}], "current_index": 1}
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.lesson, finished_ctx)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.lesson, finished_ctx, False)),
         patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
     ):
         await dispatch_message(_make_message("something"))
@@ -358,8 +423,8 @@ async def test_bare_text_in_lesson_mode_exhausted_session_starts_new_lesson():
 async def test_no_mode_defaults_to_lookup():
     """When there is no active conversation, defaults to quick_lookup."""
     with (
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock,
-              return_value=(ConversationMode.quick_lookup, None)),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="res") as mock_lkp,
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SET_MODE, new_callable=AsyncMock),
@@ -379,7 +444,9 @@ _PATCH_GET_PROGRESS = "app.routers.whatsapp.get_progress_summary"
 @pytest.mark.asyncio
 async def test_progress_calls_get_progress_summary():
     with (
-        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="📊 Your Progress\nLevel: 2/5") as mock_prog,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="Your Progress\nLevel: 2/5") as mock_prog,
         patch(_PATCH_SEND, new_callable=AsyncMock),
     ):
         await dispatch_message(_make_message("progress"))
@@ -389,8 +456,10 @@ async def test_progress_calls_get_progress_summary():
 
 @pytest.mark.asyncio
 async def test_progress_sends_summary():
-    summary = "📊 Your Progress\nLevel: 2/5"
+    summary = "Your Progress\nLevel: 2/5"
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value=summary),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
     ):
@@ -402,6 +471,8 @@ async def test_progress_sends_summary():
 @pytest.mark.asyncio
 async def test_progress_case_insensitive():
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
     ):
@@ -414,6 +485,8 @@ async def test_progress_case_insensitive():
 async def test_progress_does_not_hit_rate_limiter():
     """progress bypasses the rate limiter (no AI call)."""
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch("app.routers.whatsapp.rate_limiter.is_allowed") as mock_rl,
@@ -424,16 +497,18 @@ async def test_progress_does_not_hit_rate_limiter():
 
 
 @pytest.mark.asyncio
-async def test_progress_does_not_query_mode():
-    """progress short-circuits mode dispatch."""
+async def test_progress_short_circuits_mode_dispatch():
+    """progress short-circuits mode dispatch (no lookup called)."""
     with (
         patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="summary"),
         patch(_PATCH_SEND, new_callable=AsyncMock),
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock) as mock_state,
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_LOOKUP, new_callable=AsyncMock) as mock_lkp,
     ):
         await dispatch_message(_make_message("progress"))
 
-    mock_state.assert_not_awaited()
+    mock_lkp.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +576,8 @@ class TestCorrectTypo:
 async def test_typo_hlep_triggers_help():
     with (
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
-        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock),
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
     ):
         await dispatch_message(_make_message("hlep"))
 
@@ -510,7 +586,11 @@ async def test_typo_hlep_triggers_help():
 
 @pytest.mark.asyncio
 async def test_typo_cancle_triggers_cancel():
-    with patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel,
+    ):
         await dispatch_message(_make_message("cancle"))
 
     mock_cancel.assert_awaited_once_with("14155550001")
@@ -518,7 +598,11 @@ async def test_typo_cancle_triggers_cancel():
 
 @pytest.mark.asyncio
 async def test_typo_lessn_with_topic_starts_lesson():
-    with patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start,
+    ):
         await dispatch_message(_make_message("lessn greetings"))
 
     mock_start.assert_awaited_once_with("14155550001", "greetings")
@@ -526,7 +610,11 @@ async def test_typo_lessn_with_topic_starts_lesson():
 
 @pytest.mark.asyncio
 async def test_typo_reveiw_triggers_review():
-    with patch("app.routers.whatsapp.review_session.start_review", new_callable=AsyncMock) as mock_review:
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch("app.routers.whatsapp.review_session.start_review", new_callable=AsyncMock) as mock_review,
+    ):
         await dispatch_message(_make_message("reveiw"))
 
     mock_review.assert_awaited_once_with("14155550001")
@@ -535,6 +623,8 @@ async def test_typo_reveiw_triggers_review():
 @pytest.mark.asyncio
 async def test_typo_progres_triggers_progress():
     with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
         patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="stats") as mock_prog,
         patch(_PATCH_SEND, new_callable=AsyncMock),
     ):

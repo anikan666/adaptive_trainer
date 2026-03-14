@@ -70,6 +70,35 @@ _INPUT_TOO_LONG_TEXT = (
 _CANCEL_TEXT = "Lesson cancelled. Send 'lesson' to start a new one."
 _NO_ACTIVE_SESSION_TEXT = "Nothing to cancel. Send 'help' to see what I can do."
 
+_LESSON_HELP_TEXT = (
+    "You're in a *lesson*. Here's what you can do:\n"
+    "• Type your *answer* to the current exercise\n"
+    "• *skip* — skip this exercise\n"
+    "• *cancel* or *stop* — quit the lesson\n"
+    "• *help* — show this help"
+)
+
+_REVIEW_HELP_TEXT = (
+    "You're in a *vocabulary review*. Here's what you can do:\n"
+    "• Type your *answer* to the current review question\n"
+    "• *skip* — skip this word\n"
+    "• *cancel* or *stop* — quit the review\n"
+    "• *help* — show this help"
+)
+
+_GATEWAY_HELP_TEXT = (
+    "You're in a *gateway test* (roleplay assessment). Here's what you can do:\n"
+    "• *Reply in Kannada* to continue the conversation\n"
+    "• *cancel* or *stop* — quit the test\n"
+    "• *help* — show this help"
+)
+
+_MODE_HELP = {
+    ConversationMode.lesson: _LESSON_HELP_TEXT,
+    ConversationMode.review: _REVIEW_HELP_TEXT,
+    ConversationMode.gateway_test: _GATEWAY_HELP_TEXT,
+}
+
 _SESSION_TIMEOUT_MINUTES = 30
 _TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new one."
 
@@ -166,7 +195,8 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
         await _try_send_fallback(phone, _TIMEOUT_TEXT)
 
     if text_lower == "help":
-        await _try_send_fallback(phone, _HELP_TEXT)
+        help_text = _MODE_HELP.get(convo_mode, _HELP_TEXT)
+        await _try_send_fallback(phone, help_text)
         return
 
     if text_lower in ("cancel", "stop"):
