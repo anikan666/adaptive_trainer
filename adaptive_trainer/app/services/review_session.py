@@ -54,7 +54,12 @@ async def start_review(phone: str) -> None:
 
         today = date.today()
         due_filter = (
-            select(LearnerVocabulary.id, VocabularyItem.word, VocabularyItem.translations)
+            select(
+                LearnerVocabulary.id,
+                VocabularyItem.word,
+                VocabularyItem.translations,
+                LearnerVocabulary.unit_id,
+            )
             .join(VocabularyItem, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
             .where(LearnerVocabulary.learner_id == learner.id)
             .where(LearnerVocabulary.due_date <= today)
@@ -84,9 +89,10 @@ async def start_review(phone: str) -> None:
     await send_message(phone, "Loading your review...")
 
     items = [
-        {"lv_id": row[0], "word": row[1], "translations": row[2]}
+        {"lv_id": row[0], "word": row[1], "translations": row[2], "unit_id": row[3]}
         for row in rows
     ]
+    items = _interleave_by_unit(items)
 
     for item in items:
         translations = item["translations"] or {}
@@ -241,6 +247,46 @@ async def _finish_review(phone: str, ctx: dict) -> None:
             convo.lesson_context = None
             convo.mode = ConversationMode.quick_lookup
             await db.commit()
+
+
+def _interleave_by_unit(items: list[dict]) -> list[dict]:
+    """Reorder items so that consecutive items come from different units.
+
+    Groups items by unit_id, then round-robin picks from each group
+    (shuffled within each group) to maximise spacing between same-unit items.
+    Items with no unit_id are treated as their own unique groups.
+    """
+    from collections import defaultdict
+
+    groups: dict[object, list[dict]] = defaultdict(list)
+    no_unit_counter = 0
+    for item in items:
+        uid = item.get("unit_id")
+        if uid is None:
+            # Each unit-less item gets its own bucket so they spread out
+            groups[("_none", no_unit_counter)] = [item]
+            no_unit_counter += 1
+        else:
+            groups[uid].append(item)
+
+    # Shuffle within each group
+    for g in groups.values():
+        random.shuffle(g)
+
+    # Sort groups by descending size so the largest groups get first picks,
+    # maximising spacing
+    buckets = sorted(groups.values(), key=len, reverse=True)
+
+    result: list[dict] = []
+    while buckets:
+        next_buckets = []
+        for bucket in buckets:
+            result.append(bucket.pop(0))
+            if bucket:
+                next_buckets.append(bucket)
+        buckets = next_buckets
+
+    return result
 
 
 def _format_exercise(item: dict, index: int, total: int) -> str:

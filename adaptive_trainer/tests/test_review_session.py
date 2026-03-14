@@ -17,6 +17,7 @@ from app.models.conversation import Conversation, ConversationMode  # noqa: E402
 from app.services.review_session import (  # noqa: E402
     _build_feedback,
     _format_exercise,
+    _interleave_by_unit,
     handle_review_answer,
     start_review,
 )
@@ -59,6 +60,46 @@ def test_format_exercise_kn_to_en():
     msg = _format_exercise(item, index=2, total=3)
     assert "Word 2/3" in msg
     assert "Translate to English: how are you" in msg
+
+
+def test_interleave_by_unit_no_back_to_back():
+    """Items from the same unit should not appear consecutively."""
+    items = [
+        {"word": "a1", "unit_id": 1},
+        {"word": "a2", "unit_id": 1},
+        {"word": "b1", "unit_id": 2},
+        {"word": "b2", "unit_id": 2},
+        {"word": "c1", "unit_id": 3},
+        {"word": "c2", "unit_id": 3},
+    ]
+    result = _interleave_by_unit(items)
+    assert len(result) == 6
+    for i in range(len(result) - 1):
+        assert result[i]["unit_id"] != result[i + 1]["unit_id"], (
+            f"Back-to-back same unit at index {i}: {result[i]} and {result[i+1]}"
+        )
+
+
+def test_interleave_by_unit_single_unit_preserves_all():
+    """When all items share one unit, all items are returned (can't avoid adjacency)."""
+    items = [{"word": f"w{i}", "unit_id": 1} for i in range(4)]
+    result = _interleave_by_unit(items)
+    assert len(result) == 4
+
+
+def test_interleave_by_unit_none_unit_ids():
+    """Items with no unit_id are spread out individually."""
+    items = [
+        {"word": "a", "unit_id": None},
+        {"word": "b", "unit_id": None},
+        {"word": "c", "unit_id": 1},
+    ]
+    result = _interleave_by_unit(items)
+    assert len(result) == 3
+
+
+def test_interleave_by_unit_empty():
+    assert _interleave_by_unit([]) == []
 
 
 def test_build_feedback_correct():
