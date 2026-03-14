@@ -246,7 +246,7 @@ async def seed_vocabulary(*, dry_run: bool = False) -> int:
             cu = result.scalar_one_or_none()
             if cu is None:
                 cu = CurriculumUnit(
-                    level=ring,
+                    ring=ring,
                     unit_order=unit_order,
                     name=name,
                     slug=unit_slug,

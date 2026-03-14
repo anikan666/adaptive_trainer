@@ -17,7 +17,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
 from app.services.claude_client import ask_sonnet
-from app.services.curriculum import check_level_progression
+from app.services.curriculum import advance_ring
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -39,18 +39,18 @@ SYSTEM_GATEWAY_EVALUATION = (
 )
 
 
-async def start_gateway(phone: str, level: int) -> None:
-    """Initiate a gateway roleplay test for the given level.
+async def start_gateway(phone: str, ring: int) -> None:
+    """Initiate a gateway roleplay test for the given ring.
 
     Args:
         phone: Learner's phone number in E.164 format.
-        level: The curriculum level to test (matches gateway scenario).
+        ring: The curriculum ring to test (matches gateway scenario).
     """
-    scenario = get_gateway_scenario(level)
+    scenario = get_gateway_scenario(ring)
     if scenario is None:
         await send_message(
             phone,
-            f"No gateway test available for level {level} yet. "
+            f"No gateway test available for ring {ring} yet. "
             "Send 'lesson' to continue learning.",
         )
         return
@@ -73,7 +73,7 @@ async def start_gateway(phone: str, level: int) -> None:
                 return
 
     gateway_context = {
-        "level": level,
+        "ring": ring,
         "scenario_title": scenario["title"],
         "system_prompt": scenario["system_prompt"],
         "expected_turns": scenario["expected_turns"],
@@ -95,8 +95,8 @@ async def start_gateway(phone: str, level: int) -> None:
         await db.commit()
 
     logger.info(
-        "start_gateway phone=%s level=%d scenario=%s",
-        phone, level, scenario["title"],
+        "start_gateway phone=%s ring=%d scenario=%s",
+        phone, ring, scenario["title"],
     )
     await send_message(phone, scenario["setup_text"])
 
@@ -174,7 +174,7 @@ async def _finish_gateway(phone: str) -> None:
             return
         ctx = dict(convo.lesson_context)
 
-    level = ctx.get("level", 1)
+    level = ctx.get("ring", ctx.get("level", 0))
     turns = ctx.get("turns", [])
     criteria = ctx.get("evaluation_criteria", [])
     scenario_title = ctx.get("scenario_title", "Gateway Test")
@@ -230,9 +230,8 @@ async def _finish_gateway(phone: str) -> None:
 
     if passed:
         result_parts.append("\nCongratulations! You've passed the gateway test!")
-        progression_level = await check_level_progression(phone)
-        if progression_level is not None:
-            result_parts.append(f"Advanced to Level {progression_level}!")
+        new_ring = await advance_ring(phone)
+        result_parts.append(f"Advanced to Ring {new_ring}!")
         result_parts.append("Send 'lesson' to continue learning.")
     else:
         result_parts.append(

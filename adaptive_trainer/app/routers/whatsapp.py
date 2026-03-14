@@ -16,6 +16,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import anthropic
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -199,14 +200,14 @@ async def _handle_lesson(phone: str, topic: str) -> None:
 
 
 async def _handle_gateway(phone: str) -> None:
-    """Start a gateway test for the learner's current level."""
+    """Start a gateway test for the learner's current ring."""
     logger.info("gateway_requested phone=%s", phone)
-    from app.services.level_tracker import get_learner_level
-    try:
-        level = await get_learner_level(phone)
-    except ValueError:
-        level = 1
-    await gateway_session.start_gateway(phone, level)
+    from app.models.learner import Learner
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Learner).where(Learner.phone_number == phone))
+        learner = result.scalar_one_or_none()
+        ring = learner.current_ring if learner else 0
+    await gateway_session.start_gateway(phone, ring)
 
 
 async def _handle_lookup(phone: str, phrase: str) -> None:

@@ -20,8 +20,8 @@ class GatewayScenario(TypedDict):
 
 
 GATEWAY_SCENARIOS: dict[int, GatewayScenario] = {
-    1: {
-        "level": 1,
+    0: {
+        "level": 0,
         "title": "Order food at a darshini and pay",
         "setup_text": (
             "Gateway Test: Level 1\n\n"
@@ -54,8 +54,8 @@ GATEWAY_SCENARIOS: dict[int, GatewayScenario] = {
             "Can say goodbye appropriately (hogi banni)",
         ],
     },
-    2: {
-        "level": 2,
+    1: {
+        "level": 1,
         "title": "Navigate from MG Road to Koramangala by auto",
         "setup_text": (
             "Gateway Test: Level 2\n\n"
