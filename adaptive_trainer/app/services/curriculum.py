@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
@@ -74,12 +74,26 @@ async def get_unit_new_words(
         return await _get_unit_new_words_for_learner(db, learner.id, unit_id, count)
 
 
-async def check_unit_completion(phone: str, unit_id: int) -> bool:
-    """Check whether the learner has completed all words in the given unit.
+_UNIT_COMPLETION_SCORE = 0.5
 
-    A unit is complete when **every** word in ``unit_vocabulary`` for that unit
-    exists in ``learner_vocabulary`` with ``ease_factor > 2.0`` AND
-    ``interval > 6`` days.
+
+async def check_unit_completion(
+    phone: str, unit_id: int, session_score: float | None = None,
+) -> bool:
+    """Check whether the learner has completed a unit and can move on.
+
+    A unit is complete when:
+    1. **All** atoms in the unit have been introduced (a ``LearnerVocabulary``
+       row exists for each ``UnitVocabulary`` item in the unit).
+    2. The learner scored above 0.5 average on exercises for that unit.
+       If *session_score* is provided (from a just-finished lesson/review),
+       it is used directly.  Otherwise the average ``ease_factor`` of the
+       learner's vocabulary for this unit is used as a proxy (>= 2.3 means
+       the learner hasn't been failing badly).
+
+    SRS mastery (ease_factor / interval) determines when *review* stops
+    scheduling an item, NOT when new content starts.  This ensures learners
+    always progress forward while reviewing old material in the background.
 
     If the unit is newly complete, ``learner_unit_progress.completed_at`` is
     set to now.
@@ -89,29 +103,40 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if learner is None:
             return False
 
-        _MASTERY_EASE = 2.0
-        _MASTERY_INTERVAL = 6
-
-        # All vocabulary IDs in the unit
+        # All atom count in the unit
         total_result = await db.execute(
-            select(UnitVocabulary.id).where(UnitVocabulary.unit_id == unit_id)
+            select(func.count()).select_from(UnitVocabulary)
+            .where(UnitVocabulary.unit_id == unit_id)
         )
-        unit_vocab_ids = set(total_result.scalars().all())
-        if not unit_vocab_ids:
+        total_atoms = total_result.scalar_one()
+        if total_atoms == 0:
             return False
 
-        # Vocabulary IDs the learner has mastered in this unit
-        mastered_result = await db.execute(
-            select(LearnerVocabulary.vocabulary_item_id)
+        # How many atoms the learner has seen (LearnerVocabulary rows for this unit)
+        introduced_result = await db.execute(
+            select(func.count()).select_from(LearnerVocabulary)
             .where(LearnerVocabulary.learner_id == learner.id)
             .where(LearnerVocabulary.unit_id == unit_id)
-            .where(LearnerVocabulary.ease_factor > _MASTERY_EASE)
-            .where(LearnerVocabulary.interval > _MASTERY_INTERVAL)
         )
-        mastered_ids = set(mastered_result.scalars().all())
+        introduced_count = introduced_result.scalar_one()
 
-        if not unit_vocab_ids <= mastered_ids:
+        if introduced_count < total_atoms:
             return False
+
+        # Check score threshold
+        if session_score is not None:
+            if session_score < _UNIT_COMPLETION_SCORE:
+                return False
+        else:
+            # No session score — use avg ease_factor as proxy
+            avg_result = await db.execute(
+                select(func.avg(LearnerVocabulary.ease_factor))
+                .where(LearnerVocabulary.learner_id == learner.id)
+                .where(LearnerVocabulary.unit_id == unit_id)
+            )
+            avg_ease = avg_result.scalar_one()
+            if avg_ease is None or avg_ease < 2.3:
+                return False
 
         # Unit is complete — stamp learner_unit_progress
         progress = await _get_or_create_progress(db, learner.id, unit_id)

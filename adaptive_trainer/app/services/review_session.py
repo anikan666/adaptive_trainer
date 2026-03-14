@@ -248,14 +248,21 @@ async def _finish_review(phone: str, ctx: dict) -> None:
     await send_message(phone, summary)
 
     # Curriculum: check unit completion for reviewed words' units
-    unit_ids_checked: set[int] = set()
-    for item in ctx.get("items", []):
+    # Compute per-unit average scores from review items
+    from collections import defaultdict
+    unit_scores: dict[int, list[float]] = defaultdict(list)
+    items = ctx.get("items", [])
+    item_scores = ctx.get("scores", [])
+    for i, item in enumerate(items):
         uid = item.get("unit_id")
-        if uid is not None and uid not in unit_ids_checked:
-            unit_ids_checked.add(uid)
-            completed = await check_unit_completion(phone, uid)
-            if completed:
-                await check_ring_progression(phone)
+        if uid is not None and i < len(item_scores):
+            unit_scores[uid].append(item_scores[i])
+
+    for uid, u_scores in unit_scores.items():
+        unit_avg = sum(u_scores) / len(u_scores) if u_scores else 0.0
+        completed = await check_unit_completion(phone, uid, session_score=unit_avg)
+        if completed:
+            await check_ring_progression(phone)
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)

@@ -258,10 +258,14 @@ async def finish_lesson(phone: str) -> None:
                 exercise_type=exercise.get("type"),
             )
 
+    total = len(scores)
+    correct_count = sum(1 for s in scores if s >= 0.5)
+    avg_score = sum(scores) / total if total else 0.0
+
     # Check curriculum unit completion and level progression
     curriculum_note = ""
     if unit_id is not None:
-        unit_complete = await check_unit_completion(phone, unit_id)
+        unit_complete = await check_unit_completion(phone, unit_id, session_score=avg_score)
         if unit_complete:
             curriculum_note = "\nUnit complete!"
             # Check if all units in the ring are done — offer gateway test
@@ -272,10 +276,6 @@ async def finish_lesson(phone: str) -> None:
                     "Send 'gateway' to take the level assessment, "
                     "or 'lesson' to continue."
                 )
-
-    total = len(scores)
-    correct_count = sum(1 for s in scores if s >= 0.5)
-    avg_score = sum(scores) / total if total else 0.0
 
     # Record session
     async with AsyncSessionLocal() as db:
