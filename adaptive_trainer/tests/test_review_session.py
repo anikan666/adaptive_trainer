@@ -29,6 +29,7 @@ _PATCH_DB = "app.services.review_session.AsyncSessionLocal"
 _PATCH_SRS = "app.services.review_session.srs.record_review"
 _PATCH_EVALUATE = "app.services.review_session.evaluate_answer"
 _PATCH_UPDATE_LEVEL = "app.services.review_session.update_level_after_session"
+_PATCH_STREAK = "app.services.review_session.record_session_streak"
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +322,7 @@ async def test_handle_review_answer_last_item_sends_summary():
         patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
         patch(_PATCH_SRS, new_callable=AsyncMock),
         patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=1),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         ctx = _make_convo_ctx(convo)
         mock_db_cls.return_value = ctx
@@ -355,6 +357,7 @@ async def test_finish_review_creates_session_record():
         patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
         patch(_PATCH_SRS, new_callable=AsyncMock),
         patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2) as mock_update,
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         ctx = _make_convo_ctx(convo)
         mock_db_cls.return_value = ctx
@@ -381,6 +384,7 @@ async def test_handle_review_answer_quality_maps_score_to_sm2():
         patch(_PATCH_EVALUATE, new_callable=AsyncMock, return_value=eval_result),
         patch(_PATCH_SRS, new_callable=AsyncMock) as mock_record,
         patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=1),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         ctx = _make_convo_ctx(convo)
         mock_db_cls.return_value = ctx

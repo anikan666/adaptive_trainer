@@ -16,6 +16,7 @@ from app.services import srs
 from app.services.curriculum import check_ring_progression, check_unit_completion
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType
+from app.services.streaks import record_session_streak
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -226,9 +227,14 @@ async def _finish_review(phone: str, ctx: dict) -> None:
     reviewed = ctx.get("reviewed_count", len(ctx.get("items", [])))
     total_due = ctx.get("total_due", reviewed)
     remaining = total_due - reviewed
+
+    celebration = await record_session_streak(phone)
+
     summary = f"Review complete! {reviewed} word{'s' if reviewed != 1 else ''} reviewed."
     if remaining > 0:
         summary += f" {remaining} more word{'s' if remaining != 1 else ''} still due — send 'review' again to continue."
+    if celebration:
+        summary += f"\n{celebration}"
     await send_message(phone, summary)
 
     # Curriculum: check unit completion for reviewed words' units

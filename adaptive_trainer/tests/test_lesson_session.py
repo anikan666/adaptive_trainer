@@ -164,6 +164,7 @@ _PATCH_EVAL = "app.services.lesson_session.evaluate_answer"
 _PATCH_GET_RING_LEVEL = "app.services.lesson_session._get_learner_ring_level"
 _PATCH_GET_DUE = "app.services.lesson_session.get_due_items"
 _PATCH_GET_LEARNER_ID = "app.services.lesson_session._get_learner_id"
+_PATCH_STREAK = "app.services.lesson_session.record_session_streak"
 
 
 def _make_db_context(convo):
@@ -374,6 +375,7 @@ async def test_handle_answer_calls_finish_lesson_when_last_exercise():
         patch(_PATCH_SESSION, return_value=db_cm),
         patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=2),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         await handle_exercise_answer(PHONE, "namaskara")
 
@@ -397,6 +399,7 @@ async def test_finish_lesson_gets_ring_level():
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         await finish_lesson(PHONE)
 
@@ -414,6 +417,7 @@ async def test_finish_lesson_sends_summary_with_score():
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         await finish_lesson(PHONE)
 
@@ -433,6 +437,7 @@ async def test_finish_lesson_shows_ring_in_summary():
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         await finish_lesson(PHONE)
 
@@ -455,6 +460,7 @@ async def test_finish_lesson_adds_vocabulary_for_each_exercise():
             "app.services.lesson_session._add_or_update_vocabulary",
             new_callable=AsyncMock,
         ) as mock_vocab,
+        patch(_PATCH_STREAK, new_callable=AsyncMock, return_value=""),
     ):
         await finish_lesson(PHONE)
 

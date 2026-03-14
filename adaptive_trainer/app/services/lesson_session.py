@@ -24,6 +24,7 @@ from app.services.curriculum import (
     get_unit_new_words,
 )
 from app.services.srs import get_due_items
+from app.services.streaks import record_session_streak
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -274,11 +275,15 @@ async def finish_lesson(phone: str) -> None:
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
 
+    celebration = await record_session_streak(phone)
+
     summary = (
         f"Session complete! Score: {correct_count}/{total}. "
-        f"Ring: {current_level - 1}.{curriculum_note}\n"
-        "Send 'lesson' to start another session."
+        f"Ring: {current_level - 1}.{curriculum_note}"
     )
+    if celebration:
+        summary += f"\n{celebration}"
+    summary += "\nSend 'lesson' to start another session."
     await send_message(phone, summary)
 
     async with AsyncSessionLocal() as db:

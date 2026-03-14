@@ -79,4 +79,7 @@ async def get_progress_summary(phone: str) -> str:
         f"Vocabulary learned: {total_vocab} words",
         f"Due for review: {due_today} words",
     ]
+    if learner.current_streak > 0:
+        streak_icon = "🔥" if learner.current_streak >= 3 else "📅"
+        lines.append(f"{streak_icon} Current streak: {learner.current_streak} day{'s' if learner.current_streak != 1 else ''}")
     return "\n".join(lines)

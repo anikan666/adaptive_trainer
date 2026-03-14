@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Integer, String
+from sqlalchemy import CheckConstraint, Date, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -19,6 +19,8 @@ class Learner(Base):
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     current_ring: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_session_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    current_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

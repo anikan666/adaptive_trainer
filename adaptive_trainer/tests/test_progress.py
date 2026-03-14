@@ -23,12 +23,13 @@ from app.services.progress import (  # noqa: E402
 _PHONE = "14155550001"
 
 
-def _make_learner(level: int = 2, name: str | None = None, current_ring: int = 1) -> Learner:
+def _make_learner(level: int = 2, name: str | None = None, current_ring: int = 1, current_streak: int = 0) -> Learner:
     learner = MagicMock(spec=Learner)
     learner.id = 42
     learner.level = level
     learner.current_ring = current_ring
     learner.name = name
+    learner.current_streak = current_streak
     return learner
 
 
