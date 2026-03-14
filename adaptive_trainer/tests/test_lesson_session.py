@@ -155,13 +155,13 @@ def test_build_feedback_wrong_uses_exercise_answer_if_no_corrected():
 # start_lesson
 # ---------------------------------------------------------------------------
 
-_PATCH_GET_LEVEL = "app.services.lesson_session.get_learner_level"
+_PATCH_GET_LEVEL = "app.services.lesson_session._get_learner_ring_level"
 _PATCH_GEN_LESSON = "app.services.lesson_session.generate_lesson"
 _PATCH_GEN_BATCH = "app.services.lesson_session.generate_exercises_batch"
 _PATCH_SEND = "app.services.lesson_session.send_message"
 _PATCH_SESSION = "app.services.lesson_session.AsyncSessionLocal"
 _PATCH_EVAL = "app.services.lesson_session.evaluate_answer"
-_PATCH_UPDATE_LEVEL = "app.services.lesson_session.update_level_after_session"
+_PATCH_GET_RING_LEVEL = "app.services.lesson_session._get_learner_ring_level"
 _PATCH_GET_DUE = "app.services.lesson_session.get_due_items"
 _PATCH_GET_LEARNER_ID = "app.services.lesson_session._get_learner_id"
 
@@ -226,7 +226,7 @@ async def test_start_lesson_falls_back_to_level_1_on_missing_learner():
     db_cm, _ = _make_db_context(convo)
 
     with (
-        patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, side_effect=ValueError("no learner")),
+        patch(_PATCH_GET_LEVEL, new_callable=AsyncMock, return_value=1),
         patch(_PATCH_GEN_LESSON, new_callable=AsyncMock, return_value="Intro") as mock_lesson,
         patch(_PATCH_GEN_BATCH, new_callable=AsyncMock, return_value=[dict(_MCQ_EXERCISE)]),
         patch(_PATCH_SEND, new_callable=AsyncMock),
@@ -372,7 +372,7 @@ async def test_handle_answer_calls_finish_lesson_when_last_exercise():
         patch(_PATCH_EVAL, new_callable=AsyncMock, return_value=_EVAL_CORRECT),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2),
+        patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=2),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
     ):
         await handle_exercise_answer(PHONE, "namaskara")
@@ -387,30 +387,30 @@ async def test_handle_answer_calls_finish_lesson_when_last_exercise():
 
 
 @pytest.mark.asyncio
-async def test_finish_lesson_calls_update_level():
+async def test_finish_lesson_gets_ring_level():
     ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[1.0, 0.8])
     convo = _make_convo(lesson_context=ctx)
     db_cm, _ = _make_db_context(convo)
 
     with (
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2) as mock_update,
+        patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=2) as mock_level,
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
     ):
         await finish_lesson(PHONE)
 
-    mock_update.assert_awaited_once_with(PHONE, [1.0, 0.8])
+    mock_level.assert_awaited_once_with(PHONE)
 
 
 @pytest.mark.asyncio
 async def test_finish_lesson_sends_summary_with_score():
-    ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[1.0, 0.0], level=2)
+    ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[1.0, 0.0])
     convo = _make_convo(lesson_context=ctx)
     db_cm, _ = _make_db_context(convo)
 
     with (
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2),
+        patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=2),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
@@ -423,13 +423,13 @@ async def test_finish_lesson_sends_summary_with_score():
 
 
 @pytest.mark.asyncio
-async def test_finish_lesson_shows_level_up():
-    ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[1.0], level=2)
+async def test_finish_lesson_shows_ring_in_summary():
+    ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[1.0])
     convo = _make_convo(lesson_context=ctx)
     db_cm, _ = _make_db_context(convo)
 
     with (
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=3),
+        patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=3),
         patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
         patch(_PATCH_SESSION, return_value=db_cm),
         patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
@@ -437,25 +437,7 @@ async def test_finish_lesson_shows_level_up():
         await finish_lesson(PHONE)
 
     summary_text = mock_send.call_args[0][1]
-    assert "up to 3" in summary_text
-
-
-@pytest.mark.asyncio
-async def test_finish_lesson_shows_level_unchanged():
-    ctx = _make_ctx(exercises=[dict(_MCQ_EXERCISE)], scores=[0.5], level=2)
-    convo = _make_convo(lesson_context=ctx)
-    db_cm, _ = _make_db_context(convo)
-
-    with (
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2),
-        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
-        patch(_PATCH_SESSION, return_value=db_cm),
-        patch("app.services.lesson_session._add_or_update_vocabulary", new_callable=AsyncMock),
-    ):
-        await finish_lesson(PHONE)
-
-    summary_text = mock_send.call_args[0][1]
-    assert "unchanged" in summary_text
+    assert "Ring: 2" in summary_text
 
 
 @pytest.mark.asyncio
@@ -466,7 +448,7 @@ async def test_finish_lesson_adds_vocabulary_for_each_exercise():
     db_cm, _ = _make_db_context(convo)
 
     with (
-        patch(_PATCH_UPDATE_LEVEL, new_callable=AsyncMock, return_value=2),
+        patch(_PATCH_GET_RING_LEVEL, new_callable=AsyncMock, return_value=2),
         patch(_PATCH_SEND, new_callable=AsyncMock),
         patch(_PATCH_SESSION, return_value=db_cm),
         patch(
