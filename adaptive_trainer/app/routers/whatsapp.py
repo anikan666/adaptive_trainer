@@ -61,6 +61,12 @@ _OVERLOADED_TEXT = (
     "The AI service is currently overloaded. Please try again in a few minutes."
 )
 
+_MAX_INPUT_LENGTH = 500
+_INPUT_TOO_LONG_TEXT = (
+    f"Your message is too long (max {_MAX_INPUT_LENGTH} characters). "
+    "Please shorten it and try again."
+)
+
 _CANCEL_TEXT = "Lesson cancelled. Send 'lesson' to start a new one."
 _NO_ACTIVE_SESSION_TEXT = "Nothing to cancel. Send 'help' to see what I can do."
 
@@ -88,6 +94,12 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
     """
     phone = message.sender_phone
     text = message.text.strip()
+
+    if len(text) > _MAX_INPUT_LENGTH:
+        logger.warning("input_too_long phone=%s length=%d", phone, len(text))
+        await _try_send_fallback(phone, _INPUT_TOO_LONG_TEXT)
+        return
+
     text_lower = text.lower()
 
     # Load conversation once — used for timeout check and mode-based dispatch.

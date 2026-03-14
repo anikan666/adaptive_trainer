@@ -16,6 +16,8 @@ from app.models.conversation import Conversation, ConversationMode  # noqa: E402
 from app.routers.whatsapp import (  # noqa: E402
     _CANCEL_TEXT,
     _HELP_TEXT,
+    _INPUT_TOO_LONG_TEXT,
+    _MAX_INPUT_LENGTH,
     _NO_ACTIVE_SESSION_TEXT,
     _cancel_lesson,
     dispatch_message,
@@ -50,6 +52,37 @@ _PATCH_START_LESSON = "app.routers.whatsapp.lesson_session.start_lesson"
 _PATCH_HANDLE_EXERCISE = "app.routers.whatsapp.lesson_session.handle_exercise_answer"
 _PATCH_LOOKUP = "app.routers.whatsapp._lookup"
 _PATCH_CANCEL = "app.routers.whatsapp._cancel_lesson"
+
+
+# ---------------------------------------------------------------------------
+# max input length
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_message_over_max_length_is_rejected():
+    long_text = "a" * (_MAX_INPUT_LENGTH + 1)
+    with patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send:
+        await dispatch_message(_make_message(long_text))
+
+    mock_send.assert_awaited_once_with("14155550001", _INPUT_TOO_LONG_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_message_at_max_length_is_accepted():
+    exact_text = "a" * _MAX_INPUT_LENGTH
+    with (
+        patch("app.routers.whatsapp._load_convo_and_expire", new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_LOOKUP, new_callable=AsyncMock, return_value="res"),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+        patch(_PATCH_SET_MODE, new_callable=AsyncMock),
+    ):
+        await dispatch_message(_make_message(exact_text))
+
+    # Should NOT have sent the too-long message
+    for call in mock_send.await_args_list:
+        assert call.args[1] != _INPUT_TOO_LONG_TEXT
 
 
 # ---------------------------------------------------------------------------
