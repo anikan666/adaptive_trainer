@@ -108,8 +108,8 @@ async def _send_single(client: httpx.AsyncClient, to: str, text: str) -> dict:
 async def send_message(to: str, text: str) -> dict:
     chunks = _split_message(text)
     logger.info("Sending WhatsApp message to=%s text_len=%d chunks=%d", to, len(text), len(chunks))
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        last_result: dict = {}
-        for chunk in chunks:
-            last_result = await _send_single(client, to, chunk)
-        return last_result
+    client = get_client()
+    last_result: dict = {}
+    for chunk in chunks:
+        last_result = await _send_single(client, to, chunk)
+    return last_result
