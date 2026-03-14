@@ -331,6 +331,9 @@ def _format_exercise(exercise: dict, index: int, total: int) -> str:
     if ex_type == ExerciseType.TRANSLATION:
         return f"{header}\nTranslate to Kannada:\n{question}"
 
+    if ex_type == ExerciseType.SITUATIONAL_PROMPT:
+        return f"{header}\nSituation: {question}\nRespond in Kannada:"
+
     return f"{header}\n{question}"
 
 
@@ -386,8 +389,8 @@ def _extract_english_meaning(exercise: dict) -> str:
     question = exercise.get("question", "")
     explanation = exercise.get("explanation", "")
 
-    if ex_type == ExerciseType.TRANSLATION:
-        # The question is already the English sentence to translate.
+    if ex_type in (ExerciseType.TRANSLATION, ExerciseType.SITUATIONAL_PROMPT):
+        # The question is already the English sentence/scenario to translate.
         return question
 
     if ex_type == ExerciseType.MCQ:

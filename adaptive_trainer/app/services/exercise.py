@@ -10,6 +10,7 @@ class ExerciseType(str, Enum):
     MCQ = "mcq"
     FILL_IN_BLANK = "fill_in_blank"
     TRANSLATION = "translation"
+    SITUATIONAL_PROMPT = "situational_prompt"
 
 
 _LESSON_CONTEXT_SECTION = """\
@@ -74,10 +75,30 @@ Return a JSON object with exactly these fields:
 All Kannada must be in Roman transliteration only. Return only the JSON object, no other text.
 """
 
+_SITUATIONAL_PROMPT_TEMPLATE = """\
+Generate a situational-prompt exercise for a Kannada learner at level {level}/5.
+Topic: {topic}{lesson_context}
+Present a realistic everyday scenario (e.g. at an auto stand, at a darshini, \
+asking for directions) where the learner must respond in colloquial Kannada \
+(Roman transliteration). The scenario should use vocabulary from the lesson content above.
+
+Return a JSON object with exactly these fields:
+{{
+  "type": "situational_prompt",
+  "question": "<English description of the scenario, e.g. 'You're at a darshini. Ask for two idlis and a coffee.'>",
+  "answer": "<natural colloquial Kannada response in Roman transliteration>",
+  "distractors": [],
+  "explanation": "<brief notes on key vocabulary, register, or cultural context>"
+}}
+
+All Kannada must be in Roman transliteration only. Return only the JSON object, no other text.
+"""
+
 _PROMPT_TEMPLATES = {
     ExerciseType.MCQ: _MCQ_PROMPT_TEMPLATE,
     ExerciseType.FILL_IN_BLANK: _FILL_IN_BLANK_PROMPT_TEMPLATE,
     ExerciseType.TRANSLATION: _TRANSLATION_PROMPT_TEMPLATE,
+    ExerciseType.SITUATIONAL_PROMPT: _SITUATIONAL_PROMPT_TEMPLATE,
 }
 
 _BATCH_PROMPT_TEMPLATE = """\
@@ -87,16 +108,17 @@ Use vocabulary and phrases from the lesson content above. Include a mix of exerc
 
 Return a JSON array of exactly {count} exercise objects. Each object must have these fields:
 {{
-  "type": "mcq" | "fill_in_blank" | "translation",
+  "type": "mcq" | "fill_in_blank" | "translation" | "situational_prompt",
   "question": "<the question text>",
   "answer": "<correct answer in Roman transliteration>",
-  "distractors": ["<wrong1>", "<wrong2>", "<wrong3>"],  // empty array for translation
+  "distractors": ["<wrong1>", "<wrong2>", "<wrong3>"],  // empty array for translation and situational_prompt
   "explanation": "<brief explanation>"
 }}
 
 For mcq: question is an English prompt 'Which Kannada word means ...?', answer and distractors are Roman transliterations.
 For fill_in_blank: question is a Kannada sentence with _____, answer is the missing word.
 For translation: question is an English sentence to translate, answer is the Kannada translation.
+For situational_prompt: question describes a real-life scenario, answer is the natural Kannada response.
 
 All Kannada must be in Roman transliteration only. Return only the JSON array, no other text.
 """
@@ -172,6 +194,19 @@ def _extract_json_array(text: str) -> str:
     return result
 
 
+def _dedup_consecutive_types(exercises: list[dict]) -> list[dict]:
+    """Swap exercises so no two consecutive ones share the same type."""
+    result = list(exercises)
+    for i in range(1, len(result)):
+        if result[i]["type"] == result[i - 1]["type"]:
+            # Find the nearest later exercise with a different type and swap
+            for j in range(i + 1, len(result)):
+                if result[j]["type"] != result[i]["type"]:
+                    result[i], result[j] = result[j], result[i]
+                    break
+    return result
+
+
 async def generate_exercise(
     exercise_type: ExerciseType,
     level: int,
@@ -241,7 +276,7 @@ async def generate_exercises_batch(
         valid = [ex for ex in exercises if _validate_exercise(ex)]
 
         if len(valid) >= count:
-            return valid[:count]
+            return _dedup_consecutive_types(valid[:count])
 
         if attempt == 0:
             continue

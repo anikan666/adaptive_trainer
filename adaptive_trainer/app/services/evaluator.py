@@ -40,6 +40,29 @@ Return a JSON object with exactly these fields:
 Return only the JSON object, no other text.
 """
 
+_SITUATIONAL_EVAL_PROMPT = """\
+Exercise type: situational_prompt
+Scenario: {question}
+Expected response (colloquial Kannada, Roman transliteration): {expected}
+Learner's response: {learner}
+
+Evaluate the learner's response to this scenario. Consider:
+1. Contextual appropriateness — does the response fit the scenario?
+2. Semantic correctness — does it convey the right meaning?
+3. Natural register — is it appropriately colloquial for the situation?
+4. Minor spelling variations in transliteration are acceptable.
+
+Return a JSON object with exactly these fields:
+{{
+  "correct": <true if contextually appropriate and essentially correct, false otherwise>,
+  "score": <float 0.0–1.0>,
+  "feedback": "<concise English feedback on how well the response fits the scenario>",
+  "corrected_kannada": "<if incorrect, provide a natural Kannada response in Roman transliteration; omit or null if correct>"
+}}
+
+Return only the JSON object, no other text.
+"""
+
 _NEAR_MISS_EVAL_PROMPT = """\
 Exercise type: {exercise_type}
 Question: {question}
@@ -93,6 +116,17 @@ async def evaluate_answer(
     """
     if exercise_type == ExerciseType.TRANSLATION:
         prompt = _TRANSLATION_EVAL_PROMPT.format(
+            question=question,
+            expected=expected_answer,
+            learner=learner_answer,
+        )
+        raw = await ask_sonnet(prompt, SYSTEM_ANSWER_EVALUATION)
+        result = json.loads(_extract_json(raw))
+        result.setdefault("corrected_kannada", None)
+        return result
+
+    if exercise_type == ExerciseType.SITUATIONAL_PROMPT:
+        prompt = _SITUATIONAL_EVAL_PROMPT.format(
             question=question,
             expected=expected_answer,
             learner=learner_answer,
