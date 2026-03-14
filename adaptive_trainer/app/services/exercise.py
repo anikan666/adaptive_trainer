@@ -194,17 +194,17 @@ def _extract_json_array(text: str) -> str:
     return result
 
 
-def _dedup_consecutive_types(exercises: list[dict]) -> list[dict]:
-    """Swap exercises so no two consecutive ones share the same type."""
-    result = list(exercises)
-    for i in range(1, len(result)):
-        if result[i]["type"] == result[i - 1]["type"]:
-            # Find the nearest later exercise with a different type and swap
-            for j in range(i + 1, len(result)):
-                if result[j]["type"] != result[i]["type"]:
-                    result[i], result[j] = result[j], result[i]
-                    break
-    return result
+_DIFFICULTY_ORDER = {
+    ExerciseType.MCQ.value: 0,
+    ExerciseType.FILL_IN_BLANK.value: 1,
+    ExerciseType.TRANSLATION.value: 2,
+    ExerciseType.SITUATIONAL_PROMPT.value: 3,
+}
+
+
+def _sort_by_difficulty(exercises: list[dict]) -> list[dict]:
+    """Sort exercises by cognitive difficulty: MCQ → fill-in-blank → translation → situational prompt."""
+    return sorted(exercises, key=lambda ex: _DIFFICULTY_ORDER.get(ex.get("type", ""), 99))
 
 
 async def generate_exercise(
@@ -276,7 +276,7 @@ async def generate_exercises_batch(
         valid = [ex for ex in exercises if _validate_exercise(ex)]
 
         if len(valid) >= count:
-            return _dedup_consecutive_types(valid[:count])
+            return _sort_by_difficulty(valid[:count])
 
         if attempt == 0:
             continue
