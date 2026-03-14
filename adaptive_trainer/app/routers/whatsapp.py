@@ -47,6 +47,7 @@ _HELP_TEXT = (
     "• *review* — review vocabulary words due today\n"
     "• *gateway* — take the level gateway test (roleplay assessment)\n"
     "• *lookup <word>* — quick Kannada translation\n"
+    "• *level <0-4>* — change your level (e.g. level 3)\n"
     "• *progress* — view your learning stats\n"
     "• *cancel* or *stop* — cancel the current lesson\n"
     "• *help* — show this menu"
@@ -146,6 +147,9 @@ _TYPO_MAP: dict[str, str] = {
     # lookup
     "lokup": "lookup", "looup": "lookup", "lookp": "lookup",
     "lokoup": "lookup", "lkup": "lookup", "lookupp": "lookup",
+    # level
+    "lvl": "level", "levl": "level", "lvel": "level", "leevel": "level",
+    "levle": "level", "levell": "level",
 }
 
 
@@ -230,6 +234,10 @@ async def _dispatch_message_inner(message: IncomingTextMessage) -> None:
         await _try_send_fallback(phone, suggestions)
         return
 
+    if text_lower.startswith("level "):
+        await _handle_level_change(phone, text_lower[len("level "):].strip())
+        return
+
     if text_lower == "review":
         await review_session.start_review(phone)
         return
@@ -307,6 +315,37 @@ async def _dispatch_message_inner(message: IncomingTextMessage) -> None:
 # ---------------------------------------------------------------------------
 # Internal handlers
 # ---------------------------------------------------------------------------
+
+
+_LEVEL_INVALID_TEXT = "Please specify a level between 0 and 4. Example: *level 3*"
+_LEVEL_CHANGED_TEXT = "Level changed to {ring}. Your lessons will now match this level."
+
+
+async def _handle_level_change(phone: str, arg: str) -> None:
+    """Update the learner's current_ring and level from a 'level N' command."""
+    try:
+        ring = int(arg)
+    except ValueError:
+        await _try_send_fallback(phone, _LEVEL_INVALID_TEXT)
+        return
+
+    if ring < 0 or ring > 4:
+        await _try_send_fallback(phone, _LEVEL_INVALID_TEXT)
+        return
+
+    from app.models.learner import Learner
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Learner).where(Learner.phone_number == phone))
+        learner = result.scalar_one_or_none()
+        if learner is None:
+            await _try_send_fallback(phone, _LEVEL_INVALID_TEXT)
+            return
+        learner.current_ring = ring
+        learner.level = ring + 1
+        await db.commit()
+
+    logger.info("level_changed phone=%s ring=%d", phone, ring)
+    await _try_send_fallback(phone, _LEVEL_CHANGED_TEXT.format(ring=ring))
 
 
 async def _handle_lesson(phone: str, topic: str) -> None:

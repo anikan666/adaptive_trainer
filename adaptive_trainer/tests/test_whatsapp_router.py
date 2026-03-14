@@ -20,6 +20,8 @@ from app.routers.whatsapp import (  # noqa: E402
     _HELP_TEXT,
     _INPUT_TOO_LONG_TEXT,
     _LESSON_HELP_TEXT,
+    _LEVEL_CHANGED_TEXT,
+    _LEVEL_INVALID_TEXT,
     _MAX_INPUT_LENGTH,
     _NO_ACTIVE_SESSION_TEXT,
     _REVIEW_HELP_TEXT,
@@ -556,7 +558,7 @@ class TestCorrectTypo:
 
     def test_correct_words_unchanged(self):
         for word in ("help", "lesson", "review", "progress", "cancel", "stop",
-                     "skip", "topics", "gateway", "lookup"):
+                     "skip", "topics", "gateway", "lookup", "level"):
             assert _correct_typo(word) == word
 
     def test_unknown_words_unchanged(self):
@@ -567,7 +569,7 @@ class TestCorrectTypo:
     def test_typo_map_has_no_collisions_with_valid_commands(self):
         """No typo should map to a different valid command."""
         valid = {"help", "lesson", "review", "progress", "cancel", "stop",
-                 "skip", "topics", "gateway", "lookup"}
+                 "skip", "topics", "gateway", "lookup", "level"}
         for typo, target in _TYPO_MAP.items():
             assert typo not in valid, f"typo '{typo}' collides with valid command"
             assert target in valid, f"typo '{typo}' maps to unknown command '{target}'"
@@ -692,3 +694,180 @@ async def test_concurrent_messages_from_different_users_run_in_parallel():
 
     # Different users should have run concurrently
     assert max_concurrent == 2
+
+
+# ---------------------------------------------------------------------------
+# level command
+# ---------------------------------------------------------------------------
+
+_PATCH_HANDLE_LEVEL = "app.routers.whatsapp._handle_level_change"
+
+
+@pytest.mark.asyncio
+async def test_level_command_dispatches_to_handler():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_HANDLE_LEVEL, new_callable=AsyncMock) as mock_level,
+    ):
+        await dispatch_message(_make_message("level 3"))
+
+    mock_level.assert_awaited_once_with("14155550001", "3")
+
+
+@pytest.mark.asyncio
+async def test_level_command_case_insensitive():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_HANDLE_LEVEL, new_callable=AsyncMock) as mock_level,
+    ):
+        await dispatch_message(_make_message("LEVEL 2"))
+
+    mock_level.assert_awaited_once_with("14155550001", "2")
+
+
+@pytest.mark.asyncio
+async def test_level_does_not_hit_rate_limiter():
+    """level bypasses the rate limiter (no AI call)."""
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_HANDLE_LEVEL, new_callable=AsyncMock),
+        patch("app.routers.whatsapp.rate_limiter.is_allowed") as mock_rl,
+    ):
+        await dispatch_message(_make_message("level 1"))
+
+    mock_rl.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_level_invalid_non_numeric():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level abc"))
+
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_INVALID_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_level_out_of_range_too_high():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level 5"))
+
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_INVALID_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_level_out_of_range_negative():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level -1"))
+
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_INVALID_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_level_valid_updates_learner():
+    learner = MagicMock()
+    learner.current_ring = 0
+    learner.level = 1
+
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = learner
+
+    db = AsyncMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    db.execute = AsyncMock(return_value=result_mock)
+    db.commit = AsyncMock()
+
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level 3"))
+
+    assert learner.current_ring == 3
+    assert learner.level == 4
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_CHANGED_TEXT.format(ring=3))
+
+
+@pytest.mark.asyncio
+async def test_level_boundary_zero():
+    learner = MagicMock()
+    learner.current_ring = 2
+    learner.level = 3
+
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = learner
+
+    db = AsyncMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    db.execute = AsyncMock(return_value=result_mock)
+    db.commit = AsyncMock()
+
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level 0"))
+
+    assert learner.current_ring == 0
+    assert learner.level == 1
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_CHANGED_TEXT.format(ring=0))
+
+
+@pytest.mark.asyncio
+async def test_level_boundary_four():
+    learner = MagicMock()
+    learner.current_ring = 0
+    learner.level = 1
+
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = learner
+
+    db = AsyncMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    db.execute = AsyncMock(return_value=result_mock)
+    db.commit = AsyncMock()
+
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_DB_SESSION, return_value=db),
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+    ):
+        await dispatch_message(_make_message("level 4"))
+
+    assert learner.current_ring == 4
+    assert learner.level == 5
+    mock_send.assert_awaited_once_with("14155550001", _LEVEL_CHANGED_TEXT.format(ring=4))
+
+
+@pytest.mark.asyncio
+async def test_typo_lvl_triggers_level():
+    with (
+        patch(_PATCH_LOAD_CONVO, new_callable=AsyncMock,
+              return_value=(ConversationMode.quick_lookup, None, False)),
+        patch(_PATCH_HANDLE_LEVEL, new_callable=AsyncMock) as mock_level,
+    ):
+        await dispatch_message(_make_message("lvl 2"))
+
+    mock_level.assert_awaited_once_with("14155550001", "2")
