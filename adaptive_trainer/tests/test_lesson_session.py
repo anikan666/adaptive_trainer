@@ -477,7 +477,7 @@ async def test_finish_lesson_adds_vocabulary_for_each_exercise():
         await finish_lesson(PHONE)
 
     assert mock_vocab.await_count == 2
-    calls_words = {c[1]["word"] for c in mock_vocab.call_args_list}
+    calls_words = {c[1]["kannada_word"] for c in mock_vocab.call_args_list}
     assert "namaskara" in calls_words
     assert "chennagi" in calls_words
 

@@ -23,6 +23,8 @@ from app.services.whatsapp_sender import send_message
 logger = logging.getLogger(__name__)
 
 _EXERCISE_COUNT = 4
+_NEW_WORD_COUNT = 5
+_REVIEW_WORD_COUNT = 3
 _NO_LESSON_TEXT = "No active lesson. Send 'lesson' to start one."
 
 
@@ -34,9 +36,9 @@ _NO_LESSON_TEXT = "No active lesson. Send 'lesson' to start one."
 async def start_lesson(phone: str, topic: str) -> None:
     """Start a lesson session for the learner.
 
-    Gets the learner's level, generates a lesson intro and a queue of 3-5
-    mixed exercises, stores session state in lesson_context, sets the
-    conversation mode to lesson, then sends the intro and first exercise.
+    If topic is the default (user typed just "lesson"), uses the curriculum
+    service to select the next unit and its vocabulary. Otherwise falls back
+    to freeform Claude-generated lesson on the explicit topic.
 
     Args:
         phone: Learner's phone number in E.164 format.
@@ -55,38 +57,88 @@ async def start_lesson(phone: str, topic: str) -> None:
                 await send_message(phone, "You have a session in progress. Type 'cancel' to end it or reply to continue.")
                 return
 
-    logger.info("start_lesson phone=%s topic=%s level=%d", phone, topic, level)
+    # Determine if this is a curriculum-driven or freeform lesson
+    is_default_topic = topic.lower().strip() in ("lesson", "kannada", "")
+    unit = None
+    new_words: list[dict] = []
+    review_words: list[str] = []
+    unit_id: int | None = None
+
+    if is_default_topic:
+        unit, new_words, review_words = await _get_curriculum_context(phone)
+
+    if unit is not None:
+        unit_id = unit.id
+        topic = unit.name
+        logger.info(
+            "start_lesson phone=%s unit=%s new_words=%d review_words=%d level=%d",
+            phone, unit.name, len(new_words), len(review_words), level,
+        )
+    else:
+        logger.info("start_lesson phone=%s topic=%s level=%d (freeform)", phone, topic, level)
 
     await send_message(phone, f"Starting your lesson on {topic}...")
 
-    due_items: list[str] = []
-    async with AsyncSessionLocal() as db:
-        learner_id = await _get_learner_id(db, phone)
-        if learner_id is not None:
-            due_items = await get_due_items(db, learner_id)
+    if new_words:
+        # Curriculum-aware: pass structured words to lesson generator
+        lesson_text = await generate_lesson(
+            level=level, topic=topic,
+            new_words=new_words, review_words=review_words,
+        )
+        # Build target words for exercises from both new and review words
+        target_words = list(new_words)
+        exercises = await generate_exercises_batch(
+            count=_EXERCISE_COUNT, level=level, topic=topic,
+            lesson_text=lesson_text, target_words=target_words,
+        )
+    else:
+        # Freeform: legacy path with SRS due items
+        due_items: list[str] = []
+        async with AsyncSessionLocal() as db:
+            learner_id = await _get_learner_id(db, phone)
+            if learner_id is not None:
+                due_items = await get_due_items(db, learner_id)
 
-    lesson_text = await generate_lesson(level=level, topic=topic, due_items=due_items or None)
+        lesson_text = await generate_lesson(
+            level=level, topic=topic, due_items=due_items or None,
+        )
+        exercises = await generate_exercises_batch(
+            count=_EXERCISE_COUNT, level=level, topic=topic,
+            lesson_text=lesson_text,
+        )
 
-    exercises = await generate_exercises_batch(
-        count=_EXERCISE_COUNT, level=level, topic=topic, lesson_text=lesson_text
-    )
     for ex in exercises:
         if ex.get("type") == ExerciseType.MCQ:
             _shuffle_mcq_options(ex)
 
-    lesson_context = {
+    lesson_context: dict = {
         "exercises": exercises,
         "current_index": 0,
         "scores": [],
         "topic": topic,
         "level": level,
     }
+    if unit_id is not None:
+        lesson_context["unit_id"] = unit_id
 
     async with AsyncSessionLocal() as db:
         convo = await _get_or_create_convo(db, phone)
         convo.lesson_context = lesson_context
         convo.mode = ConversationMode.lesson
         await db.commit()
+
+    # Create learner_vocabulary entries for curriculum new words
+    if new_words and unit_id is not None:
+        for w in new_words:
+            await _add_or_update_vocabulary(
+                phone,
+                english_word=w.get("english", ""),
+                kannada_word=w.get("roman", ""),
+                explanation=w.get("usage_example", ""),
+                unit_id=unit_id,
+            )
+        # Mark unit as started
+        await _ensure_unit_started(phone, unit_id)
 
     await send_message(phone, lesson_text)
     await send_message(phone, _format_exercise(exercises[0], index=1, total=len(exercises)))
@@ -172,7 +224,8 @@ async def finish_lesson(phone: str) -> None:
     """Finalize the lesson session.
 
     Records session scores, updates learner level, adds exercise vocabulary
-    to SRS, sends a summary message, then clears lesson_context and sets
+    to SRS, checks curriculum unit completion and level progression,
+    sends a summary message, then clears lesson_context and sets
     the conversation mode back to quick_lookup.
 
     Args:
@@ -187,6 +240,7 @@ async def finish_lesson(phone: str) -> None:
     scores: list[float] = ctx.get("scores", [])
     exercises: list[dict] = ctx.get("exercises", [])
     old_level: int = ctx.get("level", 1)
+    unit_id: int | None = ctx.get("unit_id")
 
     if scores:
         try:
@@ -203,7 +257,24 @@ async def finish_lesson(phone: str) -> None:
         if kannada:
             await _add_or_update_vocabulary(
                 phone, english_word=english, kannada_word=kannada, explanation=explanation,
+                unit_id=unit_id,
             )
+
+    # Check curriculum unit completion and level progression
+    curriculum_note = ""
+    if unit_id is not None:
+        try:
+            from app.services.curriculum import check_level_progression, check_unit_completion
+
+            unit_complete = await check_unit_completion(phone, unit_id)
+            if unit_complete:
+                curriculum_note = "\nUnit complete!"
+                progression_level = await check_level_progression(phone)
+                if progression_level is not None:
+                    new_level = progression_level
+                    curriculum_note += f" Advanced to level {progression_level}!"
+        except ImportError:
+            logger.debug("curriculum service not yet available, skipping completion check")
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
@@ -216,7 +287,7 @@ async def finish_lesson(phone: str) -> None:
 
     summary = (
         f"Session complete! Score: {correct_count}/{total}. "
-        f"Level: {level_note}.\n"
+        f"Level: {level_note}.{curriculum_note}\n"
         "Send 'lesson' to start another session."
     )
     await send_message(phone, summary)
@@ -355,7 +426,11 @@ async def _get_learner_id(db: AsyncSession, phone: str) -> int | None:
 
 
 async def _add_or_update_vocabulary(
-    phone: str, english_word: str, kannada_word: str, explanation: str,
+    phone: str,
+    english_word: str,
+    kannada_word: str,
+    explanation: str,
+    unit_id: int | None = None,
 ) -> None:
     """Add a word to the learner's SRS vocabulary deck if not already present.
 
@@ -368,6 +443,7 @@ async def _add_or_update_vocabulary(
         english_word: English meaning or question context.
         kannada_word: Kannada answer in Roman transliteration.
         explanation: Additional context about the word.
+        unit_id: Optional curriculum unit ID to associate with the vocabulary.
     """
     async with AsyncSessionLocal() as db:
         learner_id = await _get_learner_id(db, phone)
@@ -395,10 +471,81 @@ async def _add_or_update_vocabulary(
         if result.scalar_one_or_none() is not None:
             return
 
-        lv = LearnerVocabulary(
-            learner_id=learner_id,
-            vocabulary_item_id=vocab_item.id,
-            due_date=date.today(),
-        )
+        lv_kwargs: dict = {
+            "learner_id": learner_id,
+            "vocabulary_item_id": vocab_item.id,
+            "due_date": date.today(),
+        }
+        # Set unit_id if the LearnerVocabulary model supports it (added by ql-q1e)
+        if unit_id is not None and hasattr(LearnerVocabulary, "unit_id"):
+            lv_kwargs["unit_id"] = unit_id
+        lv = LearnerVocabulary(**lv_kwargs)
         db.add(lv)
+        await db.commit()
+
+
+async def _get_curriculum_context(
+    phone: str,
+) -> tuple["object | None", list[dict], list[str]]:
+    """Try to load curriculum context for the learner.
+
+    Returns:
+        (unit, new_words, review_words) where unit is a CurriculumUnit or None
+        if the curriculum service is not available or no unit is found.
+    """
+    try:
+        from app.services.curriculum import get_next_unit, get_unit_new_words
+    except ImportError:
+        logger.debug("curriculum service not yet available, falling back to freeform")
+        return None, [], []
+
+    unit = await get_next_unit(phone)
+    if unit is None:
+        return None, [], []
+
+    new_words_raw = await get_unit_new_words(phone, unit.id, count=_NEW_WORD_COUNT)
+    # Convert UnitVocabulary objects to dicts for downstream use
+    new_words = [
+        {
+            "word": w.word,
+            "roman": w.roman,
+            "english": w.english,
+            "usage_example": getattr(w, "usage_example", ""),
+        }
+        for w in new_words_raw
+    ]
+
+    # Get review words from SRS due items
+    review_words: list[str] = []
+    async with AsyncSessionLocal() as db:
+        learner_id = await _get_learner_id(db, phone)
+        if learner_id is not None:
+            review_words = await get_due_items(db, learner_id, limit=_REVIEW_WORD_COUNT)
+
+    return unit, new_words, review_words
+
+
+async def _ensure_unit_started(phone: str, unit_id: int) -> None:
+    """Create or verify learner_unit_progress record for this unit."""
+    try:
+        from app.models.curriculum import LearnerUnitProgress
+    except ImportError:
+        logger.debug("curriculum models not yet available, skipping unit progress")
+        return
+
+    async with AsyncSessionLocal() as db:
+        learner_id = await _get_learner_id(db, phone)
+        if learner_id is None:
+            return
+
+        result = await db.execute(
+            select(LearnerUnitProgress)
+            .where(LearnerUnitProgress.learner_id == learner_id)
+            .where(LearnerUnitProgress.unit_id == unit_id)
+        )
+        if result.scalar_one_or_none() is not None:
+            return
+
+        progress = LearnerUnitProgress(learner_id=learner_id, unit_id=unit_id)
+        db.add(progress)
         await db.commit()
