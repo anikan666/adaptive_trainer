@@ -30,19 +30,6 @@ _WRONG_TRANSLATION_RESPONSE = json.dumps({
     "corrected_kannada": "nange neeru beku",
 })
 
-_NEAR_MISS_CORRECT_RESPONSE = json.dumps({
-    "correct": True,
-    "score": 0.9,
-    "feedback": "Acceptable transliteration variant.",
-    "corrected_kannada": None,
-})
-
-_NEAR_MISS_WRONG_RESPONSE = json.dumps({
-    "correct": False,
-    "score": 0.2,
-    "feedback": "That word means something else entirely.",
-    "corrected_kannada": "neeru",
-})
 
 
 @pytest.mark.asyncio
@@ -153,12 +140,9 @@ async def test_fill_in_blank_exact_match_no_claude_call():
 
 
 @pytest.mark.asyncio
-async def test_mcq_near_miss_calls_claude():
-    with patch(
-        "app.services.evaluator.ask_sonnet",
-        new_callable=AsyncMock,
-        return_value=_NEAR_MISS_CORRECT_RESPONSE,
-    ) as mock_ask:
+async def test_mcq_near_miss_no_claude_call():
+    """Near-miss for MCQ must NOT call Claude — exact match only."""
+    with patch("app.services.evaluator.ask_sonnet", new_callable=AsyncMock) as mock_ask:
         result = await evaluate_answer(
             ExerciseType.MCQ,
             question="Which Kannada word means 'water'?",
@@ -166,17 +150,16 @@ async def test_mcq_near_miss_calls_claude():
             learner_answer="niru",
         )
 
-    mock_ask.assert_called_once()
-    assert result["correct"] is True
+    mock_ask.assert_not_called()
+    assert result["correct"] is False
+    assert result["score"] == 0.0
+    assert result["corrected_kannada"] == "neeru"
 
 
 @pytest.mark.asyncio
-async def test_mcq_wrong_answer():
-    with patch(
-        "app.services.evaluator.ask_sonnet",
-        new_callable=AsyncMock,
-        return_value=_NEAR_MISS_WRONG_RESPONSE,
-    ):
+async def test_mcq_wrong_answer_no_claude_call():
+    """Wrong MCQ answer must NOT call Claude."""
+    with patch("app.services.evaluator.ask_sonnet", new_callable=AsyncMock) as mock_ask:
         result = await evaluate_answer(
             ExerciseType.MCQ,
             question="Which Kannada word means 'water'?",
@@ -184,8 +167,27 @@ async def test_mcq_wrong_answer():
             learner_answer="haalu",
         )
 
+    mock_ask.assert_not_called()
     assert result["correct"] is False
     assert result["corrected_kannada"] == "neeru"
+    assert "neeru" in result["feedback"]
+
+
+@pytest.mark.asyncio
+async def test_fill_in_blank_wrong_answer_no_claude_call():
+    """Wrong fill-in-blank answer must NOT call Claude."""
+    with patch("app.services.evaluator.ask_sonnet", new_callable=AsyncMock) as mock_ask:
+        result = await evaluate_answer(
+            ExerciseType.FILL_IN_BLANK,
+            question="Nim̐ma hesaru _____ ?",
+            expected_answer="enu",
+            learner_answer="yake",
+        )
+
+    mock_ask.assert_not_called()
+    assert result["correct"] is False
+    assert result["score"] == 0.0
+    assert result["corrected_kannada"] == "enu"
 
 
 @pytest.mark.asyncio
