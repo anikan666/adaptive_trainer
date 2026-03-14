@@ -19,7 +19,7 @@ _NOT_ONBOARDED_TEXT = (
 
 _NO_SESSIONS_TEXT = (
     "📊 Your Progress\n"
-    "Level: {level}/5\n\n"
+    "Ring: {ring}/4\n\n"
     "You haven't completed any sessions yet.\n"
     "Send *lesson* to start your first one! 🚀"
 )
@@ -56,7 +56,7 @@ async def get_progress_summary(phone: str) -> str:
         total_lessons, avg_score = session_stats.one()
 
     if total_lessons == 0:
-        return _NO_SESSIONS_TEXT.format(level=learner.level)
+        return _NO_SESSIONS_TEXT.format(ring=learner.current_ring)
 
     async with AsyncSessionLocal() as db:
         vocab_stats = await db.execute(
@@ -73,7 +73,7 @@ async def get_progress_summary(phone: str) -> str:
     greeting = f"Hi {learner.name}! " if learner.name else ""
     lines = [
         f"{greeting}📊 Your Progress",
-        f"Level: {learner.level}/5",
+        f"Ring: {learner.current_ring}/4",
         f"Sessions completed: {total_lessons}",
         f"Average score: {avg_pct}%",
         f"Vocabulary learned: {total_vocab} words",

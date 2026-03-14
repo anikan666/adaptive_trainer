@@ -23,7 +23,6 @@ from app.services.curriculum import (
     get_next_unit,
     get_unit_new_words,
 )
-from app.services.level_tracker import get_learner_level, update_level_after_session
 from app.services.srs import get_due_items
 from app.services.whatsapp_sender import send_message
 
@@ -51,10 +50,7 @@ async def start_lesson(phone: str, topic: str) -> None:
         phone: Learner's phone number in E.164 format.
         topic: Lesson topic in English (e.g. "greetings", "food ordering").
     """
-    try:
-        level = await get_learner_level(phone)
-    except ValueError:
-        level = 1
+    level = await _get_learner_ring_level(phone)
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)
@@ -246,16 +242,8 @@ async def finish_lesson(phone: str) -> None:
 
     scores: list[float] = ctx.get("scores", [])
     exercises: list[dict] = ctx.get("exercises", [])
-    old_level: int = ctx.get("level", 1)
     unit_id: int | None = ctx.get("unit_id")
-
-    if scores:
-        try:
-            new_level = await update_level_after_session(phone, scores)
-        except ValueError:
-            new_level = old_level
-    else:
-        new_level = old_level
+    current_level = await _get_learner_ring_level(phone)
 
     for exercise in exercises:
         kannada = exercise.get("answer", "")
@@ -284,16 +272,10 @@ async def finish_lesson(phone: str) -> None:
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)
-    if new_level > old_level:
-        level_note = f"up to {new_level}"
-    elif new_level < old_level:
-        level_note = f"down to {new_level}"
-    else:
-        level_note = f"{new_level} (unchanged)"
 
     summary = (
         f"Session complete! Score: {correct_count}/{total}. "
-        f"Level: {level_note}.{curriculum_note}\n"
+        f"Ring: {current_level - 1}.{curriculum_note}\n"
         "Send 'lesson' to start another session."
     )
     await send_message(phone, summary)
@@ -526,6 +508,18 @@ async def _get_curriculum_context(
             review_words = await get_due_items(db, learner_id, limit=_REVIEW_WORD_COUNT)
 
     return unit, new_words, review_words
+
+
+async def _get_learner_ring_level(phone: str) -> int:
+    """Return the learner's difficulty level derived from current_ring (1-5)."""
+    async with AsyncSessionLocal() as db:
+        learner_id_result = await db.execute(
+            select(Learner).where(Learner.phone_number == phone)
+        )
+        learner = learner_id_result.scalar_one_or_none()
+        if learner is None:
+            return 1
+        return learner.current_ring + 1
 
 
 async def _ensure_unit_started(phone: str, unit_id: int) -> None:

@@ -20,21 +20,21 @@ _WELCOME = (
 
 _ASK_LEVEL = (
     "Nice to meet you, {name}! 👋\n\n"
-    "On a scale of 1–5, how would you rate your current Kannada level?\n"
-    "1 = Complete beginner\n"
-    "2 = Know a few words\n"
-    "3 = Basic conversations\n"
-    "4 = Intermediate\n"
-    "5 = Advanced"
+    "How much Kannada do you know?\n"
+    "0 = Complete beginner (start from scratch)\n"
+    "1 = Know basics (greetings, numbers, ordering food)\n"
+    "2 = Can handle daily situations (transport, shopping, directions)\n"
+    "3 = Comfortable in most conversations\n"
+    "4 = Advanced speaker"
 )
 
 _INVALID_LEVEL = (
-    "Please reply with a number between 1 and 5.\n"
-    "1 = Complete beginner\n"
-    "2 = Know a few words\n"
-    "3 = Basic conversations\n"
-    "4 = Intermediate\n"
-    "5 = Advanced"
+    "Please reply with a number between 0 and 4.\n"
+    "0 = Complete beginner\n"
+    "1 = Know basics\n"
+    "2 = Daily situations\n"
+    "3 = Comfortable conversations\n"
+    "4 = Advanced"
 )
 
 _MAIN_MENU = (
@@ -153,8 +153,8 @@ async def _handle_ask_level(
     db: AsyncSession, convo: Conversation, phone: str, text: str
 ) -> None:
     try:
-        level = int(text.strip())
-        if level < 1 or level > 5:
+        ring = int(text.strip())
+        if ring < 0 or ring > 4:
             raise ValueError("out of range")
     except (ValueError, TypeError):
         await send_message(phone, _INVALID_LEVEL)
@@ -162,11 +162,11 @@ async def _handle_ask_level(
 
     name = (convo.lesson_context or {}).get("name", "")
 
-    learner = Learner(phone_number=phone, level=level, name=name or None)
+    learner = Learner(phone_number=phone, current_ring=ring, level=ring + 1, name=name or None)
     db.add(learner)
 
     convo.lesson_context = {"step": "complete", "name": name}
     await db.commit()
 
-    logger.info("onboarding_complete phone=%s level=%d", phone, level)
+    logger.info("onboarding_complete phone=%s ring=%d", phone, ring)
     await send_message(phone, _MAIN_MENU)

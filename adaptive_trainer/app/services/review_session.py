@@ -16,7 +16,6 @@ from app.services import srs
 from app.services.curriculum import check_ring_progression, check_unit_completion
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType
-from app.services.level_tracker import update_level_after_session
 from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
@@ -219,13 +218,6 @@ async def _finish_review(phone: str, ctx: dict) -> None:
     if remaining > 0:
         summary += f" {remaining} more word{'s' if remaining != 1 else ''} still due — send 'review' again to continue."
     await send_message(phone, summary)
-
-    scores = ctx.get("scores", [])
-    if scores:
-        try:
-            await update_level_after_session(phone, scores)
-        except ValueError:
-            logger.warning("Could not record review session for phone=%s", phone)
 
     # Curriculum: check unit completion for reviewed words' units
     unit_ids_checked: set[int] = set()

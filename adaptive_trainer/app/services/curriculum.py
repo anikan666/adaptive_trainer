@@ -180,9 +180,6 @@ async def check_ring_progression(phone: str) -> int | None:
     return await advance_ring(phone)
 
 
-# Alias used by lesson_session for level-based progression
-check_level_progression = check_ring_progression
-
 
 async def _all_ring_units_complete(phone: str, ring: int) -> bool:
     """Check whether all units at the given ring are complete for the learner.

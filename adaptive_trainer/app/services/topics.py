@@ -51,10 +51,10 @@ _NOT_ONBOARDED_TEXT = (
 )
 
 
-def _bracket_for_level(level: int) -> str:
-    if level <= 2:
+def _bracket_for_ring(ring: int) -> str:
+    if ring <= 1:
         return "beginner"
-    if level <= 4:
+    if ring <= 3:
         return "intermediate"
     return "advanced"
 
@@ -70,7 +70,7 @@ async def get_topic_suggestions(phone: str) -> str:
     if learner is None:
         return _NOT_ONBOARDED_TEXT
 
-    bracket = _bracket_for_level(learner.level)
+    bracket = _bracket_for_ring(learner.current_ring)
     pool = _TOPIC_POOLS[bracket]
     picks = random.sample(pool, min(_SUGGESTIONS_COUNT, len(pool)))
 
