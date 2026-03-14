@@ -82,7 +82,7 @@ _PROMPT_TEMPLATES = {
 
 _BATCH_PROMPT_TEMPLATE = """\
 Generate {count} Kannada exercises for a learner at level {level}/5.
-Topic: {topic}{lesson_context}
+Topic: {topic}{lesson_context}{target_words_context}
 Use vocabulary and phrases from the lesson content above. Include a mix of exercise types.
 
 Return a JSON array of exactly {count} exercise objects. Each object must have these fields:
@@ -99,6 +99,12 @@ For fill_in_blank: question is a Kannada sentence with _____, answer is the miss
 For translation: question is an English sentence to translate, answer is the Kannada translation.
 
 All Kannada must be in Roman transliteration only. Return only the JSON array, no other text.
+"""
+
+_TARGET_WORDS_SECTION = """\
+
+Exercises MUST test these specific words (use each word in at least one exercise):
+{words}
 """
 
 
@@ -196,6 +202,7 @@ async def generate_exercises_batch(
     level: int,
     topic: str,
     lesson_text: str = "",
+    target_words: list[dict] | None = None,
 ) -> list[dict]:
     """Generate multiple exercises in a single API call.
 
@@ -204,6 +211,8 @@ async def generate_exercises_batch(
         level: Learner proficiency level (1–5).
         topic: Exercise topic in English.
         lesson_text: Lesson content to ground exercises in specific vocabulary.
+        target_words: Optional list of word dicts (with 'roman', 'english' keys)
+            that exercises should specifically test.
 
     Returns:
         List of exercise dicts with keys: type, question, answer, distractors, explanation.
@@ -212,8 +221,16 @@ async def generate_exercises_batch(
         ValueError: If exercises fail validation after one retry.
     """
     lesson_context = _LESSON_CONTEXT_SECTION.format(lesson_text=lesson_text) if lesson_text else "\n"
+    target_words_context = ""
+    if target_words:
+        formatted = "\n".join(
+            f"- {w.get('roman', '')} ({w.get('english', '')})" for w in target_words
+        )
+        target_words_context = _TARGET_WORDS_SECTION.format(words=formatted)
     prompt = _BATCH_PROMPT_TEMPLATE.format(
-        count=count, level=level, topic=topic, lesson_context=lesson_context
+        count=count, level=level, topic=topic,
+        lesson_context=lesson_context,
+        target_words_context=target_words_context,
     )
 
     for attempt in range(2):
