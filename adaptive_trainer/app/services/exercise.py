@@ -306,3 +306,19 @@ async def generate_exercises_batch(
         if _validate_exercise(ex):
             fallback.append(ex)
     return _dedup_consecutive_types(fallback[:count])
+
+
+def _dedup_consecutive_types(exercises: list[dict]) -> list[dict]:
+    """Reorder exercises so the same type doesn't appear back to back."""
+    if len(exercises) <= 1:
+        return exercises
+    result = [exercises[0]]
+    remaining = exercises[1:]
+    while remaining:
+        for i, ex in enumerate(remaining):
+            if ex.get("type") != result[-1].get("type"):
+                result.append(remaining.pop(i))
+                break
+        else:
+            result.append(remaining.pop(0))
+    return result
