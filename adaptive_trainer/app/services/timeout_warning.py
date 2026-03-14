@@ -41,7 +41,7 @@ async def _check_and_warn() -> int:
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Conversation).where(
-                Conversation.mode.in_([m.value for m in _ACTIVE_MODES]),
+                Conversation.mode.in_(list(_ACTIVE_MODES)),
             )
         )
         convos = result.scalars().all()

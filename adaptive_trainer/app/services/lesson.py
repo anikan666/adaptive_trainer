@@ -17,9 +17,9 @@ Keep it bite-sized for WhatsApp:
 
 _SRS_PREFIX = "Work these review words into the lesson: {items}\n\n"
 
-_NEW_WORDS_PREFIX = "Focus on teaching these new words:\n{words}\n\n"
+_NEW_WORDS_PREFIX = "Focus on teaching ONLY these new words (do NOT introduce any other Kannada words):\n{words}\n\n"
 
-_REVIEW_WORDS_PREFIX = "Also weave in these review words from previous lessons: {items}\n\n"
+_REVIEW_WORDS_PREFIX = "Also weave in these review words from previous lessons (but no other new words): {items}\n\n"
 
 
 async def generate_lesson(

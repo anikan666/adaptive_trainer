@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+venv/
+.beads/
+*.db
+nohup.out
+.git/
+.mypy_cache/
+.pytest_cache/
+tests/

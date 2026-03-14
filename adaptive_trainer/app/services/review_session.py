@@ -192,7 +192,11 @@ async def handle_review_answer(phone: str, learner_answer: str) -> None:
             expected_answer=expected,
             learner_answer=learner_answer,
         )
-        quality = round(result["score"] * 5)
+        # Map 0.0-1.0 score to SM-2 quality 0-5.
+        # Use int() so 0.5 (score=0.5) maps to quality 2 (failure)
+        # and 0.6+ maps to quality 3+ (success). This matches SM-2's
+        # threshold where quality < 3 triggers a reset.
+        quality = min(5, max(0, int(result["score"] * 5 + 0.5)))
 
     async with AsyncSessionLocal() as db:
         await srs.record_review(db, item["lv_id"], quality, exercise_type=ExerciseType.TRANSLATION)

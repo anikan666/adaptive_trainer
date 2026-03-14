@@ -197,6 +197,15 @@ async def _finish_gateway(phone: str) -> None:
     try:
         raw = await ask_sonnet(eval_prompt, system=SYSTEM_GATEWAY_EVALUATION)
         evaluation = _parse_evaluation(raw)
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+        logger.error("Gateway evaluation parse failed for phone=%s: %s", phone, exc)
+        evaluation = {
+            "passed": False,
+            "score": 0.0,
+            "feedback": "Evaluation could not be completed. Please try again.",
+            "strengths": [],
+            "areas_to_improve": [],
+        }
     except Exception:
         logger.exception("Gateway evaluation failed for phone=%s", phone)
         evaluation = {
@@ -296,6 +305,7 @@ def _parse_evaluation(raw: str) -> dict:
         pass
 
     # Fallback: do not assume pass on unparseable evaluation
+    logger.warning("Gateway evaluation parse fallback, raw=%r", raw[:200] if raw else "")
     return {
         "passed": False,
         "score": 0.0,

@@ -3,12 +3,16 @@ import hmac
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, status
+from fastapi.responses import PlainTextResponse
 
 from app.config import settings
 from app.schemas.webhook import IncomingTextMessage, WebhookPayload
 from app.services.events import emit_message_event
+from app.services.whatsapp_sender import send_message
 
 logger = logging.getLogger(__name__)
+
+_NON_TEXT_REPLY = "I only understand text messages for now. Try typing your question instead!"
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -31,7 +35,7 @@ async def verify_webhook(
     hub_mode: str = Query(alias="hub.mode"),
     hub_verify_token: str = Query(alias="hub.verify_token"),
     hub_challenge: str = Query(alias="hub.challenge"),
-) -> int:
+) -> PlainTextResponse:
     """WhatsApp webhook verification handshake (GET /webhook).
 
     Meta calls this endpoint when you register or update the webhook URL.
@@ -39,7 +43,7 @@ async def verify_webhook(
     """
     if hub_mode != "subscribe" or hub_verify_token != settings.whatsapp_verify_token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    return int(hub_challenge)
+    return PlainTextResponse(content=hub_challenge)
 
 
 async def _safe_emit(incoming: IncomingTextMessage) -> None:
@@ -84,6 +88,8 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks) -
             value = change.value
             for msg in value.messages or []:
                 if msg.type != "text" or msg.text is None:
+                    if msg.type in ("image", "audio", "video", "sticker", "document"):
+                        background_tasks.add_task(send_message, msg.from_, _NON_TEXT_REPLY)
                     continue
                 incoming = IncomingTextMessage(
                     message_id=msg.id,

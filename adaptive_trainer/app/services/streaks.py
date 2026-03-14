@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
@@ -18,6 +18,8 @@ async def record_session_streak(phone: str) -> str:
     - If last_session_date is yesterday: increment streak
     - If last_session_date is today: no change (already counted)
     - Otherwise: reset streak to 1
+
+    Uses database-level updates to avoid race conditions with concurrent requests.
 
     Returns milestone/streak celebration text, or empty string.
     """
@@ -37,11 +39,18 @@ async def record_session_streak(phone: str) -> str:
             return _streak_message(learner.current_streak)
 
         if last == today - timedelta(days=1):
-            learner.current_streak += 1
+            new_streak = Learner.current_streak + 1
         else:
-            learner.current_streak = 1
+            new_streak = 1
 
-        learner.last_session_date = today
+        await db.execute(
+            update(Learner)
+            .where(Learner.id == learner.id)
+            .values(current_streak=new_streak, last_session_date=today)
+        )
+
+        # Re-read to get the actual value after atomic update
+        await db.refresh(learner)
         streak = learner.current_streak
 
         # Gather milestone data

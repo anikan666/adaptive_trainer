@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str
     whatsapp_phone_number_id: str
     database_url: str
+    admin_api_key: str = ""
 
 
 settings = Settings()

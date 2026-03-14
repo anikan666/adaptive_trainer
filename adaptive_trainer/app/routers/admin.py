@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.session import get_db
 from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
@@ -14,8 +15,17 @@ from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 router = APIRouter()
 
 
+def _check_admin_key(key: str = Query(alias="key", default="")) -> None:
+    """Validate admin API key if one is configured."""
+    if settings.admin_api_key and key != settings.admin_api_key:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
 @router.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard(db: AsyncSession = Depends(get_db)):
+async def admin_dashboard(
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_check_admin_key),
+):
     total_learners = (await db.execute(select(func.count(Learner.id)))).scalar() or 0
     total_sessions = (await db.execute(select(func.count(SessionRecord.id)))).scalar() or 0
     avg_score = (await db.execute(select(func.avg(SessionRecord.avg_score)))).scalar()

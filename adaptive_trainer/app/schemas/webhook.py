@@ -72,13 +72,15 @@ class IncomingTextMessage(BaseModel):
     @field_validator("message_id", "sender_phone", "timestamp", "phone_number_id")
     @classmethod
     def must_be_non_empty(cls, v: str) -> str:
-        if not v.strip():
+        stripped = v.strip()
+        if not stripped:
             raise ValueError("field must not be empty")
-        return v
+        return stripped
 
     @field_validator("text")
     @classmethod
     def text_must_be_non_empty(cls, v: str) -> str:
-        if not v.strip():
+        stripped = v.strip()
+        if not stripped:
             raise ValueError("text must not be empty")
-        return v
+        return stripped

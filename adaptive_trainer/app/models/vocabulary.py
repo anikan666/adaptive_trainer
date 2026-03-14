@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -20,6 +20,9 @@ class VocabularyItem(Base):
 
 class LearnerVocabulary(Base):
     __tablename__ = "learner_vocabulary"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "vocabulary_item_id", name="uq_learner_vocab_item"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     learner_id: Mapped[int] = mapped_column(

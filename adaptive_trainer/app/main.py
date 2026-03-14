@@ -16,15 +16,29 @@ from app.services.whatsapp_sender import close_client as close_whatsapp_client
 
 logger = logging.getLogger(__name__)
 
+_SEED_MAX_RETRIES = 3
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        count = await seed_vocabulary()
-        if count:
-            logger.info("Seeded %d curriculum vocabulary items", count)
-    except Exception:
-        logger.exception("Failed to seed curriculum vocabulary")
+    for attempt in range(1, _SEED_MAX_RETRIES + 1):
+        try:
+            count = await seed_vocabulary()
+            if count:
+                logger.info("Seeded %d curriculum vocabulary items", count)
+            break
+        except Exception:
+            logger.exception(
+                "Failed to seed curriculum vocabulary (attempt %d/%d)",
+                attempt, _SEED_MAX_RETRIES,
+            )
+            if attempt == _SEED_MAX_RETRIES:
+                raise RuntimeError(
+                    "Curriculum seed failed after %d attempts — refusing to start "
+                    "with empty curriculum." % _SEED_MAX_RETRIES
+                )
+            await asyncio.sleep(2 ** attempt)
+
     warning_task = asyncio.create_task(run_timeout_warning_loop())
     yield
     warning_task.cancel()

@@ -287,7 +287,7 @@ async def generate_exercises_batch(
         valid = [ex for ex in exercises if _validate_exercise(ex)]
 
         if len(valid) >= count:
-            return _sort_by_difficulty(valid[:count])
+            return _dedup_consecutive_types(_sort_by_difficulty(valid[:count]))
 
         if attempt == 0:
             continue
