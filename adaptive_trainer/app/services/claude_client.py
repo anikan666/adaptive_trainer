@@ -1,5 +1,10 @@
+import asyncio
+import logging
+
 import anthropic
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # System prompt constants
@@ -53,36 +58,77 @@ SYSTEM_ANSWER_EVALUATION = (
 )
 
 # ---------------------------------------------------------------------------
+# Retry / timeout configuration
+# ---------------------------------------------------------------------------
+
+REQUEST_TIMEOUT_S = 30
+MAX_RETRIES = 2
+BACKOFF_BASE_S = 1
+
+
+class ClaudeAPIError(Exception):
+    """Raised when all retries for a Claude API call are exhausted."""
+
+
+# ---------------------------------------------------------------------------
 # Async helpers
 # ---------------------------------------------------------------------------
 
 _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
 
+async def _call_with_retries(*, model: str, max_tokens: int, messages: list,
+                             system: str | None = None) -> str:
+    """Call the Claude API with timeout and exponential-backoff retries."""
+    kwargs: dict = dict(model=model, max_tokens=max_tokens, messages=messages)
+    if system is not None:
+        kwargs["system"] = system
+
+    last_exc: BaseException | None = None
+    for attempt in range(1 + MAX_RETRIES):
+        try:
+            message = await asyncio.wait_for(
+                _client.messages.create(**kwargs),
+                timeout=REQUEST_TIMEOUT_S,
+            )
+            return message.content[0].text
+        except (asyncio.TimeoutError, anthropic.APIConnectionError,
+                anthropic.RateLimitError, anthropic.InternalServerError) as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES:
+                delay = BACKOFF_BASE_S * (2 ** attempt)
+                logger.warning(
+                    "Claude API call failed (attempt %d/%d): %s — retrying in %ss",
+                    attempt + 1, 1 + MAX_RETRIES, exc, delay,
+                )
+                await asyncio.sleep(delay)
+
+    raise ClaudeAPIError(
+        f"Claude API call failed after {1 + MAX_RETRIES} attempts: {last_exc}"
+    ) from last_exc
+
+
 async def ask_haiku(prompt: str) -> str:
-    message = await _client.messages.create(
+    return await _call_with_retries(
         model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return message.content[0].text
 
 
 async def ask_haiku_with_system(prompt: str, system: str) -> str:
-    message = await _client.messages.create(
+    return await _call_with_retries(
         model="claude-haiku-4-5-20251001",
         max_tokens=256,
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )
-    return message.content[0].text
 
 
 async def ask_sonnet(prompt: str, system: str) -> str:
-    message = await _client.messages.create(
+    return await _call_with_retries(
         model="claude-sonnet-4-6",
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )
-    return message.content[0].text
