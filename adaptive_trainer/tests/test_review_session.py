@@ -44,7 +44,7 @@ def test_format_exercise_en_to_kn():
         "expected": "how are you",
     }
     msg = _format_exercise(item, index=1, total=3)
-    assert "Word 1/3" in msg
+    assert "Word █░░ 1/3" in msg
     assert "Translate to Kannada: hegiddira" in msg
 
 
@@ -57,7 +57,7 @@ def test_format_exercise_kn_to_en():
         "expected": "hegiddira",
     }
     msg = _format_exercise(item, index=2, total=3)
-    assert "Word 2/3" in msg
+    assert "Word ██░ 2/3" in msg
     assert "Translate to English: how are you" in msg
 
 
@@ -258,7 +258,7 @@ async def test_handle_review_answer_correct_advances_index():
     feedback_msg = calls[0][0][1]
     assert "\u2713" in feedback_msg
     next_exercise_msg = calls[1][0][1]
-    assert "Word 2/2" in next_exercise_msg
+    assert "Word ██ 2/2" in next_exercise_msg
 
 
 @pytest.mark.asyncio

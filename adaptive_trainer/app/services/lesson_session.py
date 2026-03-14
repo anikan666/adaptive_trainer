@@ -300,11 +300,18 @@ def _shuffle_mcq_options(exercise: dict) -> None:
     exercise["shuffled_options"] = options
 
 
+def _progress_bar(index: int, total: int) -> str:
+    """Return a text progress bar like '██░░ 2/4'."""
+    filled = "█" * index
+    unfilled = "░" * (total - index)
+    return f"{filled}{unfilled} {index}/{total}"
+
+
 def _format_exercise(exercise: dict, index: int, total: int) -> str:
     """Format an exercise dict as a WhatsApp-friendly text message."""
     ex_type = exercise.get("type", "")
     question = exercise.get("question", "")
-    header = f"Exercise {index}/{total}"
+    header = f"Exercise {_progress_bar(index, total)}"
 
     if ex_type == ExerciseType.MCQ:
         options = exercise.get("shuffled_options", [exercise["answer"]] + exercise.get("distractors", []))

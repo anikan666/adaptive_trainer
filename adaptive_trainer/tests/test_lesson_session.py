@@ -100,7 +100,7 @@ def test_format_exercise_mcq():
     ex = dict(_MCQ_EXERCISE)
     ex["shuffled_options"] = ["namaskara", "dhanyavada", "illa", "hogona"]
     result = _format_exercise(ex, index=1, total=3)
-    assert "Exercise 1/3" in result
+    assert "Exercise █░░ 1/3" in result
     assert "A)" in result
     assert "namaskara" in result
 
@@ -261,7 +261,7 @@ async def test_start_lesson_sends_intro_then_first_exercise():
     second_call_text = mock_send.call_args_list[1][0][1]
     assert second_call_text == "Intro text"
     third_call_text = mock_send.call_args_list[2][0][1]
-    assert "Exercise 1/1" in third_call_text
+    assert "Exercise █ 1/1" in third_call_text
 
 
 @pytest.mark.asyncio
@@ -359,7 +359,7 @@ async def test_handle_answer_sends_next_exercise_when_more_remain():
         await handle_exercise_answer(PHONE, "namaskara")
 
     texts = [c[0][1] for c in mock_send.call_args_list]
-    assert any("Exercise 2/2" in t for t in texts)
+    assert any("Exercise ██ 2/2" in t for t in texts)
 
 
 @pytest.mark.asyncio

@@ -243,9 +243,16 @@ async def _finish_review(phone: str, ctx: dict) -> None:
             await db.commit()
 
 
+def _progress_bar(index: int, total: int) -> str:
+    """Return a text progress bar like '██░░ 2/4'."""
+    filled = "█" * index
+    unfilled = "░" * (total - index)
+    return f"{filled}{unfilled} {index}/{total}"
+
+
 def _format_exercise(item: dict, index: int, total: int) -> str:
     """Format a vocabulary item as a review exercise message."""
-    return f"Word {index}/{total}\n{item['question']}"
+    return f"Word {_progress_bar(index, total)}\n{item['question']}"
 
 
 def _build_feedback(result: dict, expected: str) -> str:
