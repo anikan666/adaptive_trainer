@@ -1,4 +1,4 @@
-"""Curriculum service layer: unit selection, completion check, ring progression."""
+"""Curriculum service layer: ring-aware unit selection, completion, ring advancement."""
 
 import logging
 from datetime import datetime, timezone
@@ -13,57 +13,52 @@ from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 
 logger = logging.getLogger(__name__)
 
+_MAX_RING = 4  # rings 0-4
+
 
 async def get_next_unit(phone: str) -> CurriculumUnit | None:
-    """Return the first uncompleted curriculum unit for the learner.
+    """Return the first uncompleted curriculum unit in the learner's current ring.
 
-    Looks at the learner's current ring first.  If all units in that ring are
-    complete, moves to the next ring.  Returns ``None`` when no curriculum
-    units remain.
+    Looks at units matching the learner's current ring.
+    Returns ``None`` when all units in the ring are complete — signalling
+    that a gateway test is needed before advancing.
     """
     async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
             return None
 
-        # Try current ring first, then next rings
-        for ring in range(learner.current_ring, 5):
-            unit = await _first_uncompleted_unit(db, learner.id, ring)
-            if unit is not None:
-                return unit
-
-    return None
+        return await _first_uncompleted_unit(db, learner.id, learner.current_ring)
 
 
 async def get_unit_new_words(
     phone: str, unit_id: int, count: int = 5
 ) -> list[UnitVocabulary]:
-    """Return up to *count* words from the unit that the learner hasn't mastered.
+    """Return up to *count* words from the unit that the learner hasn't seen.
 
-    A word is considered "new" if it either:
-    - Does not exist in ``learner_vocabulary`` for this learner, or
-    - Exists but has ``ease_factor <= 2.0`` (still weak).
+    A word is "seen" if a ``LearnerVocabulary`` row linked to this unit
+    exists for it.  Order by ``UnitVocabulary.id`` for stable ordering.
     """
     async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
             return []
 
-        mastered_words_subq = (
+        # Words the learner has already seen in this unit
+        seen_subq = (
             select(VocabularyItem.word)
             .join(
                 LearnerVocabulary,
                 LearnerVocabulary.vocabulary_item_id == VocabularyItem.id,
             )
             .where(LearnerVocabulary.learner_id == learner.id)
-            .where(LearnerVocabulary.ease_factor > 2.0)
+            .where(LearnerVocabulary.unit_id == unit_id)
         ).subquery()
 
-        # Get unit vocabulary words NOT in the mastered set
         stmt = (
             select(UnitVocabulary)
             .where(UnitVocabulary.unit_id == unit_id)
-            .where(UnitVocabulary.english.notin_(select(mastered_words_subq.c.word)))
+            .where(UnitVocabulary.english.notin_(select(seen_subq.c.word)))
             .order_by(UnitVocabulary.id)
             .limit(count)
         )
@@ -75,20 +70,17 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
     """Check whether the learner has completed all words in the given unit.
 
     A unit is complete when **every** word in ``unit_vocabulary`` for that unit
-    exists in ``learner_vocabulary`` with ``ease_factor > 2.0`` AND
-    ``interval > 6``.
+    exists in ``learner_vocabulary`` with ``ease_factor >= 2.5``.
 
-    If the unit is complete and ``learner_unit_progress.completed_at`` is not
-    yet set, it is set to ``now()``.
-
-    Returns ``True`` if the unit is (now) complete.
+    If the unit is newly complete, ``learner_unit_progress.completed_at`` is
+    set to now.
     """
     async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
             return False
 
-        # Total words in the unit
+        # All words in the unit
         total_result = await db.execute(
             select(UnitVocabulary.english).where(UnitVocabulary.unit_id == unit_id)
         )
@@ -96,7 +88,7 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if not unit_words:
             return False
 
-        # Words the learner has mastered (ease_factor > 2.0 AND interval > 6)
+        # Words the learner has mastered (ease_factor >= 2.5)
         mastered_result = await db.execute(
             select(VocabularyItem.word)
             .join(
@@ -104,13 +96,12 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
                 LearnerVocabulary.vocabulary_item_id == VocabularyItem.id,
             )
             .where(LearnerVocabulary.learner_id == learner.id)
-            .where(LearnerVocabulary.ease_factor > 2.0)
-            .where(LearnerVocabulary.interval > 6)
+            .where(LearnerVocabulary.ease_factor >= 2.5)
             .where(VocabularyItem.word.in_(unit_words))
         )
         mastered_words = set(mastered_result.scalars().all())
 
-        if not unit_words.issubset(mastered_words):
+        if not unit_words <= mastered_words:
             return False
 
         # Unit is complete — stamp learner_unit_progress
@@ -118,35 +109,30 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if progress.completed_at is None:
             progress.completed_at = datetime.now(timezone.utc)
             await db.commit()
-            logger.info(
-                "Unit %d completed for learner %s", unit_id, phone
-            )
+            logger.info("Unit %d completed for learner %s", unit_id, phone)
 
         return True
 
 
-async def check_ring_progression(phone: str) -> int | None:
-    """If all units in the learner's current ring are complete, advance ring.
+async def check_ring_completion(phone: str) -> bool:
+    """Check whether all units in the learner's current ring are completed.
 
-    Returns the new ring, or ``None`` if no progression occurred.
+    Returns ``True`` if the learner is ready for a gateway test.
     """
     async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
-            return None
+            return False
 
         current_ring = learner.current_ring
 
-        # All units in the current ring
         units_result = await db.execute(
             select(CurriculumUnit.id).where(CurriculumUnit.ring == current_ring)
         )
-        unit_ids = list(units_result.scalars().all())
+        unit_ids = set(units_result.scalars().all())
         if not unit_ids:
-            # No curriculum units defined for this ring — no progression
-            return None
+            return False
 
-        # Check that ALL have a completed learner_unit_progress row
         completed_result = await db.execute(
             select(LearnerUnitProgress.unit_id)
             .where(LearnerUnitProgress.learner_id == learner.id)
@@ -155,20 +141,47 @@ async def check_ring_progression(phone: str) -> int | None:
         )
         completed_ids = set(completed_result.scalars().all())
 
-        if set(unit_ids) != completed_ids:
-            return None
+        return unit_ids <= completed_ids
 
-        # All units complete — advance ring (cap at 4)
-        if current_ring >= 4:
-            return None
 
-        learner.current_ring = current_ring + 1
+async def advance_ring(phone: str) -> int:
+    """Increment the learner's current ring (cap at ``_MAX_RING``).
+
+    Returns the new ring number.
+    """
+    async with AsyncSessionLocal() as db:
+        learner = await _get_learner(db, phone)
+        if learner is None:
+            return 0
+
+        current_ring = learner.current_ring
+        if current_ring >= _MAX_RING:
+            return current_ring
+
+        new_ring = current_ring + 1
+        learner.current_ring = new_ring
         await db.commit()
         logger.info(
-            "Learner %s progressed from ring %d to %d",
-            phone, current_ring, learner.current_ring,
+            "Learner %s advanced from ring %d to %d",
+            phone, current_ring, new_ring,
         )
-        return learner.current_ring
+        return new_ring
+
+
+async def check_ring_progression(phone: str) -> int | None:
+    """Check ring completion and advance if ready.
+
+    Returns the new ring, or ``None`` if no progression occurred.
+    """
+    ring_complete = await check_ring_completion(phone)
+    if not ring_complete:
+        return None
+
+    return await advance_ring(phone)
+
+
+# Alias used by lesson_session for level-based progression
+check_level_progression = check_ring_progression
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +198,6 @@ async def _first_uncompleted_unit(
     db: AsyncSession, learner_id: int, ring: int
 ) -> CurriculumUnit | None:
     """Return the first unit in *ring* that the learner hasn't completed."""
-    # Subquery: unit IDs this learner has completed
     completed_subq = (
         select(LearnerUnitProgress.unit_id)
         .where(LearnerUnitProgress.learner_id == learner_id)
