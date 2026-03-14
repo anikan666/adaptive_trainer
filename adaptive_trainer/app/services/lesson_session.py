@@ -342,14 +342,20 @@ def _build_feedback(result: dict, exercise: dict) -> str:
     correct = result.get("correct", False)
     feedback = result.get("feedback", "")
     corrected = result.get("corrected_kannada")
+    explanation = result.get("explanation", "")
 
     if correct:
-        return f"\u2713 Correct! {feedback}"
+        msg = f"\u2713 Correct! {feedback}"
+        if explanation and explanation != "You got it right!":
+            msg += f"\n{explanation}"
+        return msg
 
     msg = f"\u2717 {feedback}"
     correction = corrected or exercise.get("answer", "")
     if correction:
         msg += f"\nCorrect answer: {correction}"
+    if explanation:
+        msg += f"\n\n💡 {explanation}"
     return msg
 
 

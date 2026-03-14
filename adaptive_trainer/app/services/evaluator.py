@@ -47,7 +47,9 @@ Return a JSON object with exactly these fields:
   "correct": <true if essentially correct (score >= 0.7), false otherwise>,
   "score": <float 0.0–1.0, using the rubric above>,
   "feedback": "<concise English feedback explaining correctness or errors>",
-  "corrected_kannada": "<if incorrect, provide the ideal Kannada answer in Roman transliteration; omit or null if correct>"
+  "corrected_kannada": "<if incorrect, provide the ideal Kannada answer in Roman transliteration; omit or null if correct>",
+  "error_type": "<one of: wrong_word, wrong_form, wrong_register, wrong_order, partial, spelling, none — categorize the primary error>",
+  "explanation": "<1-2 sentence explanation of WHY the answer is wrong and what the learner should understand. For correct answers, briefly affirm what they got right. E.g. 'You used the formal form _haagide_ but the colloquial form is _aite_.' or 'You translated _come_ as _hogi_ which means _go_ — the correct word is _baa_.'>"
 }}
 
 Return only the JSON object, no other text.
@@ -83,7 +85,9 @@ Return a JSON object with exactly these fields:
   "correct": <true if contextually appropriate and essentially correct (score >= 0.7), false otherwise>,
   "score": <float 0.0–1.0, using the rubric above>,
   "feedback": "<concise English feedback on how well the response fits the scenario>",
-  "corrected_kannada": "<if incorrect, provide a natural Kannada response in Roman transliteration; omit or null if correct>"
+  "corrected_kannada": "<if incorrect, provide a natural Kannada response in Roman transliteration; omit or null if correct>",
+  "error_type": "<one of: wrong_word, wrong_register, wrong_context, partial, spelling, none — categorize the primary error>",
+  "explanation": "<1-2 sentence explanation of WHY the answer is wrong and what the learner should understand. For correct answers, briefly affirm what they got right. E.g. 'This situation calls for a polite request but you used a casual command form.' or 'You greeted correctly but _namaskara_ is too formal for talking to a friend — use _hey_ or _yeno_.>'>"
 }}
 
 Return only the JSON object, no other text.
@@ -96,6 +100,8 @@ def _exact_match_result(question: str) -> dict:
         "score": 1.0,
         "feedback": "Correct!",
         "corrected_kannada": None,
+        "error_type": "none",
+        "explanation": "You got it right!",
     }
 
 
@@ -105,6 +111,8 @@ def _wrong_match_result(expected_answer: str) -> dict:
         "score": 0.0,
         "feedback": f"Not quite. The correct answer is: {expected_answer}",
         "corrected_kannada": expected_answer,
+        "error_type": "wrong_word",
+        "explanation": f"The expected answer was '{expected_answer}'. Review this word and try to remember it for next time.",
     }
 
 
@@ -138,6 +146,8 @@ async def evaluate_answer(
         raw = await ask_sonnet(prompt, SYSTEM_ANSWER_EVALUATION)
         result = json.loads(_extract_json(raw))
         result.setdefault("corrected_kannada", None)
+        result.setdefault("error_type", "none")
+        result.setdefault("explanation", "")
         return result
 
     if exercise_type == ExerciseType.SITUATIONAL_PROMPT:
@@ -149,6 +159,8 @@ async def evaluate_answer(
         raw = await ask_sonnet(prompt, SYSTEM_ANSWER_EVALUATION)
         result = json.loads(_extract_json(raw))
         result.setdefault("corrected_kannada", None)
+        result.setdefault("error_type", "none")
+        result.setdefault("explanation", "")
         return result
 
     # MCQ / fill-in-blank: exact match only (no Claude fallback)
