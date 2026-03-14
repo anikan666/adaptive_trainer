@@ -75,6 +75,63 @@ _TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new o
 
 _ACTIVE_SESSION_MODES = {ConversationMode.lesson, ConversationMode.review, ConversationMode.gateway_test}
 
+# ---------------------------------------------------------------------------
+# Typo correction — static map of common misspellings
+# ---------------------------------------------------------------------------
+
+_TYPO_MAP: dict[str, str] = {
+    # help
+    "hlep": "help", "hepl": "help", "hep": "help", "halp": "help",
+    "helpp": "help", "hekp": "help",
+    # lesson
+    "lessn": "lesson", "leson": "lesson", "leeson": "lesson",
+    "lessno": "lesson", "lesosn": "lesson", "lssn": "lesson",
+    "lessson": "lesson", "lessen": "lesson",
+    # review
+    "reveiw": "review", "reviw": "review", "revew": "review",
+    "rview": "review", "reveiv": "review", "rveiw": "review",
+    "reviwe": "review",
+    # progress
+    "progres": "progress", "progess": "progress", "porgress": "progress",
+    "prgress": "progress", "progrss": "progress", "progrees": "progress",
+    # cancel
+    "cancle": "cancel", "cancal": "cancel", "cansel": "cancel",
+    "canel": "cancel", "cacel": "cancel", "cncel": "cancel",
+    # stop
+    "stp": "stop", "sotp": "stop", "stpo": "stop", "stpp": "stop",
+    # skip
+    "skp": "skip", "skpi": "skip", "sikp": "skip", "skiip": "skip",
+    # topics
+    "topcs": "topics", "topis": "topics", "topcis": "topics",
+    "tpics": "topics", "toipcs": "topics",
+    # gateway
+    "gatway": "gateway", "gatewya": "gateway", "gaeway": "gateway",
+    "gatewy": "gateway", "gatewat": "gateway",
+    # lookup
+    "lokup": "lookup", "looup": "lookup", "lookp": "lookup",
+    "lokoup": "lookup", "lkup": "lookup", "lookupp": "lookup",
+}
+
+
+def _correct_typo(text_lower: str) -> str:
+    """Correct common typos in command keywords.
+
+    Handles both single-word commands (e.g. "hlep" → "help") and
+    prefix commands (e.g. "lessn greetings" → "lesson greetings").
+    """
+    # Single-word: direct lookup
+    if text_lower in _TYPO_MAP:
+        return _TYPO_MAP[text_lower]
+
+    # Prefix commands: check if the first word is a typo
+    first_space = text_lower.find(" ")
+    if first_space > 0:
+        first_word = text_lower[:first_space]
+        if first_word in _TYPO_MAP:
+            return _TYPO_MAP[first_word] + text_lower[first_space:]
+
+    return text_lower
+
 
 async def dispatch_message(message: IncomingTextMessage) -> None:
     """Route an incoming WhatsApp message to the appropriate handler.
@@ -100,7 +157,7 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
         await _try_send_fallback(phone, _INPUT_TOO_LONG_TEXT)
         return
 
-    text_lower = text.lower()
+    text_lower = _correct_typo(text.lower())
 
     # Load conversation once — used for timeout check and mode-based dispatch.
     convo_mode, convo_context, timed_out = await _load_convo_and_expire(phone)

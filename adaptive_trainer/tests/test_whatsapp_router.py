@@ -19,7 +19,9 @@ from app.routers.whatsapp import (  # noqa: E402
     _INPUT_TOO_LONG_TEXT,
     _MAX_INPUT_LENGTH,
     _NO_ACTIVE_SESSION_TEXT,
+    _TYPO_MAP,
     _cancel_lesson,
+    _correct_typo,
     dispatch_message,
 )
 from app.schemas.webhook import IncomingTextMessage  # noqa: E402
@@ -432,3 +434,110 @@ async def test_progress_does_not_query_mode():
         await dispatch_message(_make_message("progress"))
 
     mock_state.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# typo tolerance
+# ---------------------------------------------------------------------------
+
+
+class TestCorrectTypo:
+    """Unit tests for the _correct_typo helper."""
+
+    @pytest.mark.parametrize("typo,expected", [
+        ("hlep", "help"),
+        ("hepl", "help"),
+        ("hep", "help"),
+        ("halp", "help"),
+        ("lessn", "lesson"),
+        ("leson", "lesson"),
+        ("leeson", "lesson"),
+        ("reveiw", "review"),
+        ("reviw", "review"),
+        ("progres", "progress"),
+        ("progess", "progress"),
+        ("cancle", "cancel"),
+        ("cancal", "cancel"),
+        ("stp", "stop"),
+        ("sotp", "stop"),
+        ("skp", "skip"),
+        ("skpi", "skip"),
+        ("topcs", "topics"),
+        ("gatway", "gateway"),
+        ("lokup", "lookup"),
+    ])
+    def test_single_word_typos(self, typo, expected):
+        assert _correct_typo(typo) == expected
+
+    @pytest.mark.parametrize("typo,expected", [
+        ("lessn greetings", "lesson greetings"),
+        ("leson food ordering", "lesson food ordering"),
+        ("lokup hello", "lookup hello"),
+        ("looup namaste", "lookup namaste"),
+    ])
+    def test_prefix_command_typos(self, typo, expected):
+        assert _correct_typo(typo) == expected
+
+    def test_correct_words_unchanged(self):
+        for word in ("help", "lesson", "review", "progress", "cancel", "stop",
+                     "skip", "topics", "gateway", "lookup"):
+            assert _correct_typo(word) == word
+
+    def test_unknown_words_unchanged(self):
+        assert _correct_typo("hello") == "hello"
+        assert _correct_typo("namaste") == "namaste"
+        assert _correct_typo("how are you") == "how are you"
+
+    def test_typo_map_has_no_collisions_with_valid_commands(self):
+        """No typo should map to a different valid command."""
+        valid = {"help", "lesson", "review", "progress", "cancel", "stop",
+                 "skip", "topics", "gateway", "lookup"}
+        for typo, target in _TYPO_MAP.items():
+            assert typo not in valid, f"typo '{typo}' collides with valid command"
+            assert target in valid, f"typo '{typo}' maps to unknown command '{target}'"
+
+
+@pytest.mark.asyncio
+async def test_typo_hlep_triggers_help():
+    with (
+        patch(_PATCH_SEND, new_callable=AsyncMock) as mock_send,
+        patch(_PATCH_GET_CONVO_STATE, new_callable=AsyncMock),
+    ):
+        await dispatch_message(_make_message("hlep"))
+
+    mock_send.assert_awaited_once_with("14155550001", _HELP_TEXT)
+
+
+@pytest.mark.asyncio
+async def test_typo_cancle_triggers_cancel():
+    with patch(_PATCH_CANCEL, new_callable=AsyncMock) as mock_cancel:
+        await dispatch_message(_make_message("cancle"))
+
+    mock_cancel.assert_awaited_once_with("14155550001")
+
+
+@pytest.mark.asyncio
+async def test_typo_lessn_with_topic_starts_lesson():
+    with patch(_PATCH_START_LESSON, new_callable=AsyncMock) as mock_start:
+        await dispatch_message(_make_message("lessn greetings"))
+
+    mock_start.assert_awaited_once_with("14155550001", "greetings")
+
+
+@pytest.mark.asyncio
+async def test_typo_reveiw_triggers_review():
+    with patch("app.routers.whatsapp.review_session.start_review", new_callable=AsyncMock) as mock_review:
+        await dispatch_message(_make_message("reveiw"))
+
+    mock_review.assert_awaited_once_with("14155550001")
+
+
+@pytest.mark.asyncio
+async def test_typo_progres_triggers_progress():
+    with (
+        patch(_PATCH_GET_PROGRESS, new_callable=AsyncMock, return_value="stats") as mock_prog,
+        patch(_PATCH_SEND, new_callable=AsyncMock),
+    ):
+        await dispatch_message(_make_message("progres"))
+
+    mock_prog.assert_awaited_once_with("14155550001")
