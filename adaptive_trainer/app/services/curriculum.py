@@ -184,6 +184,35 @@ async def check_ring_progression(phone: str) -> int | None:
 check_level_progression = check_ring_progression
 
 
+async def _all_level_units_complete(phone: str, level: int) -> bool:
+    """Check whether all units at the given level are complete for the learner.
+
+    Unlike ``check_level_progression``, this does NOT bump the learner's level.
+    Used to detect when a gateway test should be offered.
+    """
+    async with AsyncSessionLocal() as db:
+        learner = await _get_learner(db, phone)
+        if learner is None:
+            return False
+
+        units_result = await db.execute(
+            select(CurriculumUnit.id).where(CurriculumUnit.level == level)
+        )
+        unit_ids = list(units_result.scalars().all())
+        if not unit_ids:
+            return False
+
+        completed_result = await db.execute(
+            select(LearnerUnitProgress.unit_id)
+            .where(LearnerUnitProgress.learner_id == learner.id)
+            .where(LearnerUnitProgress.unit_id.in_(unit_ids))
+            .where(LearnerUnitProgress.completed_at.is_not(None))
+        )
+        completed_ids = set(completed_result.scalars().all())
+
+        return set(unit_ids) == completed_ids
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

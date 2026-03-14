@@ -14,6 +14,7 @@ class ConversationMode(str, enum.Enum):
     quick_lookup = "quick_lookup"
     onboarding = "onboarding"
     review = "review"
+    gateway_test = "gateway_test"
 
 
 class Conversation(Base):

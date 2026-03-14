@@ -23,6 +23,7 @@ from app.db.queries import get_active_convo as _get_active_convo
 from app.db.session import AsyncSessionLocal
 from app.models.conversation import Conversation, ConversationMode
 from app.schemas.webhook import IncomingTextMessage
+from app.services import gateway_session
 from app.services import lesson_session
 from app.services import rate_limiter
 from app.services import review_session
@@ -41,6 +42,7 @@ _HELP_TEXT = (
     "• *lesson <topic>* — lesson on a specific topic (e.g. lesson greetings)\n"
     "• *topics* — get topic suggestions for your level\n"
     "• *review* — review vocabulary words due today\n"
+    "• *gateway* — take the level gateway test (roleplay assessment)\n"
     "• *lookup <word>* — quick Kannada translation\n"
     "• *progress* — view your learning stats\n"
     "• *cancel* or *stop* — cancel the current lesson\n"
@@ -64,7 +66,7 @@ _NO_ACTIVE_SESSION_TEXT = "Nothing to cancel. Send 'help' to see what I can do."
 _SESSION_TIMEOUT_MINUTES = 30
 _TIMEOUT_TEXT = "Your previous session timed out. Send 'lesson' to start a new one."
 
-_ACTIVE_SESSION_MODES = {ConversationMode.lesson, ConversationMode.review}
+_ACTIVE_SESSION_MODES = {ConversationMode.lesson, ConversationMode.review, ConversationMode.gateway_test}
 
 
 async def dispatch_message(message: IncomingTextMessage) -> None:
@@ -115,6 +117,25 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
         await review_session.start_review(phone)
         return
 
+    if text_lower == "gateway":
+        # Rate-limited: gateway uses AI for roleplay
+        if not rate_limiter.is_allowed(phone):
+            logger.warning("rate_limit_exceeded phone=%s", phone)
+            await _try_send_fallback(phone, _RATE_LIMIT_TEXT)
+            return
+        try:
+            await _handle_gateway(phone)
+        except anthropic.RateLimitError as exc:
+            logger.error("anthropic_rate_limit phone=%s err=%s", phone, exc)
+            await _try_send_fallback(phone, _OVERLOADED_TEXT)
+        except anthropic.APIStatusError as exc:
+            logger.error("anthropic_api_error phone=%s status=%d err=%s", phone, exc.status_code, exc)
+            await _try_send_fallback(phone, _ERROR_TEXT)
+        except SQLAlchemyError as exc:
+            logger.error("db_error phone=%s err=%s", phone, exc, exc_info=True)
+            await _try_send_fallback(phone, _ERROR_TEXT)
+        return
+
     # All paths below invoke AI — enforce the per-phone hourly rate limit.
     if not rate_limiter.is_allowed(phone):
         logger.warning("rate_limit_exceeded phone=%s", phone)
@@ -145,6 +166,8 @@ async def dispatch_message(message: IncomingTextMessage) -> None:
                 await _handle_lesson(phone, _DEFAULT_TOPIC)
         elif mode == ConversationMode.review:
             await review_session.handle_review_answer(phone, text)
+        elif mode == ConversationMode.gateway_test:
+            await gateway_session.handle_gateway_turn(phone, text)
         else:
             # Default: treat bare text as a lookup phrase
             await _handle_lookup(phone, text)
@@ -173,6 +196,17 @@ async def _handle_lesson(phone: str, topic: str) -> None:
     """Start a lesson session for the learner."""
     logger.info("lesson_requested phone=%s topic=%s", phone, topic)
     await lesson_session.start_lesson(phone, topic)
+
+
+async def _handle_gateway(phone: str) -> None:
+    """Start a gateway test for the learner's current level."""
+    logger.info("gateway_requested phone=%s", phone)
+    from app.services.level_tracker import get_learner_level
+    try:
+        level = await get_learner_level(phone)
+    except ValueError:
+        level = 1
+    await gateway_session.start_gateway(phone, level)
 
 
 async def _handle_lookup(phone: str, phrase: str) -> None:
