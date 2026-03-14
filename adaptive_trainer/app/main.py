@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.data.curriculum_seed import seed_vocabulary
 from app.routers import admin, webhook
 from app.services.timeout_warning import run_timeout_warning_loop
 from app.services.whatsapp_sender import close_client as close_whatsapp_client
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        count = await seed_vocabulary()
+        if count:
+            logger.info("Seeded %d curriculum vocabulary items", count)
+    except Exception:
+        logger.exception("Failed to seed curriculum vocabulary")
     warning_task = asyncio.create_task(run_timeout_warning_loop())
     yield
     warning_task.cancel()

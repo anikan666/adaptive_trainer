@@ -78,7 +78,8 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
     """Check whether the learner has completed all words in the given unit.
 
     A unit is complete when **every** word in ``unit_vocabulary`` for that unit
-    exists in ``learner_vocabulary`` with ``ease_factor >= 2.5``.
+    exists in ``learner_vocabulary`` with ``ease_factor > 2.0`` AND
+    ``interval > 6`` days.
 
     If the unit is newly complete, ``learner_unit_progress.completed_at`` is
     set to now.
@@ -88,26 +89,17 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         if learner is None:
             return False
 
-        # Count total and mastered words in a single query.
-        # Production exercises (translation, situational_prompt) get 1.5x
-        # effective ease for the mastery check.
         from sqlalchemy import case, func as sa_func
 
-        _MASTERY_THRESHOLD = 2.5
-        _PRODUCTION_WEIGHT = 1.5
-        effective_ease = case(
-            (
-                LearnerVocabulary.last_exercise_type.in_(["translation", "situational_prompt"]),
-                LearnerVocabulary.ease_factor * _PRODUCTION_WEIGHT,
-            ),
-            else_=LearnerVocabulary.ease_factor,
-        )
+        _MASTERY_EASE = 2.0
+        _MASTERY_INTERVAL = 6
 
         mastered_subq = (
             select(VocabularyItem.word)
             .join(LearnerVocabulary, LearnerVocabulary.vocabulary_item_id == VocabularyItem.id)
             .where(LearnerVocabulary.learner_id == learner.id)
-            .where(effective_ease >= _MASTERY_THRESHOLD)
+            .where(LearnerVocabulary.ease_factor > _MASTERY_EASE)
+            .where(LearnerVocabulary.interval > _MASTERY_INTERVAL)
         ).subquery()
 
         result = await db.execute(
