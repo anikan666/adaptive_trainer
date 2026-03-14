@@ -1,4 +1,4 @@
-"""Curriculum service layer: unit selection, completion check, level progression."""
+"""Curriculum service layer: unit selection, completion check, ring progression."""
 
 import logging
 from datetime import datetime, timezone
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 async def get_next_unit(phone: str) -> CurriculumUnit | None:
     """Return the first uncompleted curriculum unit for the learner.
 
-    Looks at the learner's current level first.  If all units at that level are
-    complete, moves to the next level.  Returns ``None`` when no curriculum
+    Looks at the learner's current ring first.  If all units in that ring are
+    complete, moves to the next ring.  Returns ``None`` when no curriculum
     units remain.
     """
     async with AsyncSessionLocal() as db:
@@ -26,9 +26,9 @@ async def get_next_unit(phone: str) -> CurriculumUnit | None:
         if learner is None:
             return None
 
-        # Try current level first, then next levels
-        for level in range(learner.level, 6):
-            unit = await _first_uncompleted_unit(db, learner.id, level)
+        # Try current ring first, then next rings
+        for ring in range(learner.current_ring, 5):
+            unit = await _first_uncompleted_unit(db, learner.id, ring)
             if unit is not None:
                 return unit
 
@@ -125,25 +125,25 @@ async def check_unit_completion(phone: str, unit_id: int) -> bool:
         return True
 
 
-async def check_level_progression(phone: str) -> int | None:
-    """If all units at the learner's current level are complete, bump level.
+async def check_ring_progression(phone: str) -> int | None:
+    """If all units in the learner's current ring are complete, advance ring.
 
-    Returns the new level, or ``None`` if no progression occurred.
+    Returns the new ring, or ``None`` if no progression occurred.
     """
     async with AsyncSessionLocal() as db:
         learner = await _get_learner(db, phone)
         if learner is None:
             return None
 
-        current_level = learner.level
+        current_ring = learner.current_ring
 
-        # All units at the current level
+        # All units in the current ring
         units_result = await db.execute(
-            select(CurriculumUnit.id).where(CurriculumUnit.level == current_level)
+            select(CurriculumUnit.id).where(CurriculumUnit.ring == current_ring)
         )
         unit_ids = list(units_result.scalars().all())
         if not unit_ids:
-            # No curriculum units defined for this level — no progression
+            # No curriculum units defined for this ring — no progression
             return None
 
         # Check that ALL have a completed learner_unit_progress row
@@ -158,17 +158,17 @@ async def check_level_progression(phone: str) -> int | None:
         if set(unit_ids) != completed_ids:
             return None
 
-        # All units complete — bump level (cap at 5)
-        if current_level >= 5:
+        # All units complete — advance ring (cap at 4)
+        if current_ring >= 4:
             return None
 
-        learner.level = current_level + 1
+        learner.current_ring = current_ring + 1
         await db.commit()
         logger.info(
-            "Learner %s progressed from level %d to %d",
-            phone, current_level, learner.level,
+            "Learner %s progressed from ring %d to %d",
+            phone, current_ring, learner.current_ring,
         )
-        return learner.level
+        return learner.current_ring
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +182,9 @@ async def _get_learner(db: AsyncSession, phone: str) -> Learner | None:
 
 
 async def _first_uncompleted_unit(
-    db: AsyncSession, learner_id: int, level: int
+    db: AsyncSession, learner_id: int, ring: int
 ) -> CurriculumUnit | None:
-    """Return the first unit at *level* that the learner hasn't completed."""
+    """Return the first unit in *ring* that the learner hasn't completed."""
     # Subquery: unit IDs this learner has completed
     completed_subq = (
         select(LearnerUnitProgress.unit_id)
@@ -194,7 +194,7 @@ async def _first_uncompleted_unit(
 
     stmt = (
         select(CurriculumUnit)
-        .where(CurriculumUnit.level == level)
+        .where(CurriculumUnit.ring == ring)
         .where(CurriculumUnit.id.notin_(select(completed_subq.c.unit_id)))
         .order_by(CurriculumUnit.unit_order)
         .limit(1)

@@ -13,7 +13,7 @@ from app.models.conversation import Conversation, ConversationMode
 from app.models.learner import Learner
 from app.models.vocabulary import LearnerVocabulary, VocabularyItem
 from app.services import srs
-from app.services.curriculum import check_level_progression, check_unit_completion
+from app.services.curriculum import check_ring_progression, check_unit_completion
 from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType
 from app.services.level_tracker import update_level_after_session
@@ -235,7 +235,7 @@ async def _finish_review(phone: str, ctx: dict) -> None:
             unit_ids_checked.add(uid)
             completed = await check_unit_completion(phone, uid)
             if completed:
-                await check_level_progression(phone)
+                await check_ring_progression(phone)
 
     async with AsyncSessionLocal() as db:
         convo = await _get_active_convo(db, phone)

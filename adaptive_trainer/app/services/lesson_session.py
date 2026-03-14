@@ -18,7 +18,7 @@ from app.services.evaluator import evaluate_answer
 from app.services.exercise import ExerciseType, generate_exercises_batch
 from app.services.lesson import generate_lesson
 from app.services.curriculum import (
-    check_level_progression,
+    check_ring_progression,
     check_unit_completion,
     get_next_unit,
     get_unit_new_words,
@@ -273,10 +273,9 @@ async def finish_lesson(phone: str) -> None:
         unit_complete = await check_unit_completion(phone, unit_id)
         if unit_complete:
             curriculum_note = "\nUnit complete!"
-            progression_level = await check_level_progression(phone)
-            if progression_level is not None:
-                new_level = progression_level
-                curriculum_note += f" Advanced to level {progression_level}!"
+            new_ring = await check_ring_progression(phone)
+            if new_ring is not None:
+                curriculum_note += f" Advanced to ring {new_ring}!"
 
     total = len(scores)
     correct_count = sum(1 for s in scores if s >= 0.5)

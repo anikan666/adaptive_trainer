@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -9,9 +10,12 @@ from app.db.base import Base
 
 class CurriculumUnit(Base):
     __tablename__ = "curriculum_units"
+    __table_args__ = (
+        CheckConstraint("ring >= 0 AND ring <= 4", name="curriculum_unit_ring_range"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    level: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    ring: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     unit_order: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
@@ -28,6 +32,10 @@ class UnitVocabulary(Base):
     roman: Mapped[str] = mapped_column(Text, nullable=False)
     english: Mapped[str] = mapped_column(Text, nullable=False)
     usage_example: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True, server_default="{}")
+    grammar_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usage_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    related_atoms: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
 
 
 class LearnerUnitProgress(Base):
